@@ -7,7 +7,7 @@ from pathlib import Path
 
 from wisdom_workspace import get_workspace_dir, set_workspace_dir
 
-_MEDIA_CHILD_NAMES = frozenset({"mp3", "png", "jpg"})
+_MEDIA_CHILD_NAMES = frozenset({"mp3", "png", "jpg", "mp4"})
 
 
 def find_child_dir(root: Path, name: str) -> Path:
@@ -120,16 +120,26 @@ def default_mp4_dir() -> Path | None:
     return find_child_dir(root, "mp4")
 
 
-def ensure_content_layout(root: Path | str) -> dict[str, Path]:
-    """콘텐츠 루트 아래 ``tts``/``stt``/``md``/``png``/``jpg``/``mp3``/``mp4`` 확보."""
+def ensure_content_dirs(root: Path | str, *names: str) -> dict[str, Path]:
+    """콘텐츠 루트 아래 지정한 하위 폴더만 확보 (없으면 생성)."""
     r = Path(root).expanduser()
     r.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path] = {}
-    for name in ("tts", "stt", "md", "png", "jpg", "mp3", "mp4"):
-        p = find_child_dir(r, name)
+    for name in names:
+        key = str(name).strip()
+        if not key:
+            continue
+        p = find_child_dir(r, key)
         p.mkdir(parents=True, exist_ok=True)
-        out[name] = p
+        out[key] = p
     return out
+
+
+def ensure_content_layout(root: Path | str) -> dict[str, Path]:
+    """콘텐츠 루트 아래 ``tts``/``stt``/``md``/``png``/``jpg``/``mp3``/``mp4`` 확보."""
+    return ensure_content_dirs(
+        root, "tts", "stt", "md", "png", "jpg", "mp3", "mp4"
+    )
 
 
 def infer_root_from_media_path(path: str | Path) -> Path | None:

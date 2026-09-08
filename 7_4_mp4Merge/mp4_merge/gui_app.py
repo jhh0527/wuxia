@@ -119,10 +119,11 @@ def main(*, container: tk.Misc | None = None) -> None:
         raw = root_var.get().strip()
         if not raw:
             return
-        from wisdom_content_paths import ensure_content_layout
+        # mp4만 확보 — mp3/png/jpg/tts 등 불필요 폴더는 만들지 않음
+        from wisdom_content_paths import ensure_content_dirs
 
         r = Path(raw).expanduser()
-        layout = ensure_content_layout(r)
+        layout = ensure_content_dirs(r, "mp4")
         folder_var.set(str(layout["mp4"]))
         if force:
             touch_workspace_from_path(str(r))

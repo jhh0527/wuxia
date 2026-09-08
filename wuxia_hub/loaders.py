@@ -21,6 +21,8 @@ _TAB_MAIN: dict[str, tuple[str, str]] = {
     "1_5_textToJson": ("text_to_json.gui_app", "main"),
     "2_2_scriptToVoice": ("script_voice.gui_app", "main"),
     "2_3_stt": ("stt.gui_app", "main"),
+    "2_3_1_mp4ToSrt": ("mp4_to_srt.gui_app", "main"),
+    "2_3_2_mp4VoiceReplace": ("mp4_voice_replace.gui_app", "main"),
     "2_4_srtEdit": ("srt_edit.gui_app", "main"),
     "2_5_sceneImage": ("scene_image.gui_app", "main"),
     "3_2_pngToJpg": ("png2jpg.gui_app", "main"),

@@ -453,15 +453,15 @@ def main(*, container: tk.Misc | None = None) -> None:
     ttk.Button(act1, text="미리보기 다시 저장", command=do_save_brief).pack(side=tk.LEFT)
     ttk.Button(
         act1,
-        text="실행(줄거리→tts)",
+        text="원클릭: 대본 생성",
         command=lambda: do_oneclick_write_tts(),
     ).pack(side=tk.RIGHT)
 
     ttk.Label(
         tab_tts,
         text=(
-            "「젠스파크 실행 → tts」가 합본 붙여넣기·결과 저장까지 합니다. "
-            f"(수동: 복사·다운로드 → 결과 파일 → tts / {CHAPTER_START}…)"
+            "「원클릭: 대본 생성」한 번으로 합본→젠스파크 전송→대본 회수→tts 저장까지 합니다. "
+            f"(수동: 합본 복사 · 결과 파일 → tts / {CHAPTER_START}…)"
         ),
         wraplength=820,
     ).pack(anchor="w", pady=(0, 4))
@@ -564,17 +564,20 @@ def main(*, container: tk.Misc | None = None) -> None:
         if key == clip_state["last_saved_hash"]:
             return True
         _set_progress(1, 2, "tts 저장 중")
-        path = save_chapter_to_tts(work, ch, body)
+        path = save_chapter_to_tts(
+            work, ch, body, novel_root=novel_var.get().strip() or None
+        )
         clip_state["last_saved_hash"] = key
         clip_state["last_reject_key"] = ""
+        saved_body = path.read_text(encoding="utf-8-sig")
         body_text.delete("1.0", tk.END)
-        body_text.insert("1.0", body)
+        body_text.insert("1.0", saved_body)
         on_body_key()
         touch_workspace_from_path(work)
         _persist()
         _set_progress(2, 2, "tts 저장 완료")
-        status_var.set(f"{source} → tts/{ch}.txt ({len(body):,}자) · {path}")
-        diag_log.log(f"{source} → {path} chars={len(body)}")
+        status_var.set(f"{source} → tts/{ch}.txt ({len(saved_body):,}자) · {path}")
+        diag_log.log(f"{source} → {path} chars={len(saved_body)}")
         _idle("tts 저장 완료")
         return True
 
@@ -756,7 +759,16 @@ def main(*, container: tk.Misc | None = None) -> None:
             return
         email, password = acc
 
-        from plot_to_prompt.genspark_chat import has_playwright, run_chapter_flow
+        try:
+            from plot_to_prompt.genspark_chat import has_playwright, run_chapter_flow
+        except ImportError as e:
+            messagebox.showerror(
+                "모듈 없음",
+                "plot_to_prompt.genspark_chat 를 불러오지 못했습니다.\n"
+                f"{e}\nexe를 다시 빌드하세요.",
+            )
+            diag_log.log(f"genspark_chat import 실패: {e!r}")
+            return
 
         if not has_playwright():
             messagebox.showerror(
@@ -772,8 +784,10 @@ def main(*, container: tk.Misc | None = None) -> None:
         _busy("젠스파크 작성 중…")
         status_var.set("젠스파크에 합본 붙여넣기·전송·대기 중…")
         diag_log.log(f"젠스파크 실행 시작 ch={ch} packet={len(data)}자")
+        work_root = work
+        novel_root = novel_var.get().strip() or None
 
-        def work() -> None:
+        def _genspark_worker() -> None:
             try:
                 result = run_chapter_flow(
                     packet_text=data,
@@ -784,6 +798,22 @@ def main(*, container: tk.Misc | None = None) -> None:
                     password=password,
                 )
                 body = (result.get("chapter_text") or "").strip()
+                saved_path: Path | None = None
+                save_err: BaseException | None = None
+                if body:
+                    try:
+                        saved_path = save_chapter_to_tts(
+                            work_root,
+                            ch,
+                            body,
+                            novel_root=novel_root,
+                        )
+                        diag_log.log(
+                            f"젠스파크 저장완료 → {saved_path} chars={len(body)}"
+                        )
+                    except BaseException as se:
+                        save_err = se
+                        diag_log.log(f"젠스파크 저장실패: {se!r}")
 
                 def done() -> None:
                     run_busy["on"] = False
@@ -797,23 +827,37 @@ def main(*, container: tk.Misc | None = None) -> None:
                             "「결과 파일 → tts」로 수동 저장하세요.",
                         )
                         return
-                    path = save_chapter_to_tts(work, ch, body)
+                    if save_err is not None or saved_path is None:
+                        _idle("저장 오류")
+                        safe_messagebox(
+                            root,
+                            "showerror",
+                            "저장 실패",
+                            f"대본은 받았으나 파일 저장에 실패했습니다.\n{save_err}",
+                        )
+                        body_text.delete("1.0", tk.END)
+                        body_text.insert("1.0", body)
+                        on_body_key()
+                        return
+                    saved_body = saved_path.read_text(encoding="utf-8-sig")
                     body_text.delete("1.0", tk.END)
-                    body_text.insert("1.0", body)
+                    body_text.insert("1.0", saved_body)
                     on_body_key()
-                    touch_workspace_from_path(work)
+                    touch_workspace_from_path(work_root)
                     _persist()
                     note = " · 로그인OK" if result.get("logged_in") else ""
                     status_var.set(
-                        f"젠스파크 → tts/{ch}.txt ({len(body):,}자){note} · {path}"
+                        f"젠스파크 → tts/{ch}.txt ({len(saved_body):,}자){note} · {saved_path}"
                     )
-                    diag_log.log(f"젠스파크 → {path} chars={len(body)}")
+                    diag_log.log(
+                        f"젠스파크 → {saved_path} chars={len(saved_body)}"
+                    )
                     _idle("tts 저장 완료")
                     safe_messagebox(
                         root,
                         "showinfo",
                         "완료",
-                        f"대본 저장 완료{note}\n{path}\n{len(body):,}자",
+                        f"대본 저장 완료{note}\n{saved_path}\n{len(saved_body):,}자",
                     )
 
                 safe_after(root, done)
@@ -826,11 +870,16 @@ def main(*, container: tk.Misc | None = None) -> None:
 
                 safe_after(root, fail)
 
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=_genspark_worker, daemon=True).start()
 
     def do_oneclick_write_tts() -> None:
         """원클릭: (가능하면 BRIEF 갱신) -> 합본 -> 젠스파크 -> tts 저장."""
         if run_busy["on"]:
+            messagebox.showinfo(
+                "진행 중",
+                "이미 젠스파크 작성이 진행 중입니다.\n"
+                "끝날 때까지 기다리거나, Google 로그인 팝업을 처리한 뒤 다시 시도하세요.",
+            )
             return
         try:
             _chapter_int()
@@ -841,6 +890,9 @@ def main(*, container: tk.Misc | None = None) -> None:
         if not work:
             messagebox.showerror("작업 루트", "작업 루트(…/N장)를 선택하세요.")
             return
+        acc = _resolve_account()
+        if acc is None:
+            return
         # 줄거리가 있으면 최신 BRIEF를 먼저 갱신
         plot_raw = plot_txt.get("1.0", "end-1c").strip()
         if plot_raw:
@@ -850,6 +902,7 @@ def main(*, container: tk.Misc | None = None) -> None:
         if not data:
             messagebox.showwarning("합본", "합본이 비어 있습니다. BRIEF/줄거리를 확인하세요.")
             return
+        status_var.set("원클릭: 합본 완료 → 젠스파크 대본 작성 시작…")
         do_run_genspark_chapter()
 
     def do_save_tts() -> None:
@@ -867,11 +920,17 @@ def main(*, container: tk.Misc | None = None) -> None:
         if not body:
             messagebox.showwarning("대본", "저장할 본문이 비어 있습니다.")
             return
-        path = save_chapter_to_tts(work, ch, body)
+        path = save_chapter_to_tts(
+            work, ch, body, novel_root=novel_var.get().strip() or None
+        )
+        saved_body = path.read_text(encoding="utf-8-sig")
+        body_text.delete("1.0", tk.END)
+        body_text.insert("1.0", saved_body)
+        on_body_key()
         touch_workspace_from_path(work)
         _persist()
-        status_var.set(f"저장: {path} ({len(body):,}자)")
-        diag_log.log(f"칸 내용 저장 {path} chars={len(body)}")
+        status_var.set(f"저장: {path} ({len(saved_body):,}자)")
+        diag_log.log(f"칸 내용 저장 {path} chars={len(saved_body)}")
         _idle("tts 저장 완료")
 
     def do_load_tts() -> None:
@@ -935,24 +994,27 @@ def main(*, container: tk.Misc | None = None) -> None:
             return
         if kind == "raw":
             diag_log.log(f"결과 파일: START/END 없음 → 전체 {len(body)}자 저장")
-        path = save_chapter_to_tts(work, ch, body)
+        path = save_chapter_to_tts(
+            work, ch, body, novel_root=novel_var.get().strip() or None
+        )
+        saved_body = path.read_text(encoding="utf-8-sig")
         body_text.delete("1.0", tk.END)
-        body_text.insert("1.0", body)
+        body_text.insert("1.0", saved_body)
         on_body_key()
         touch_workspace_from_path(work)
         _persist()
-        status_var.set(f"결과 파일 → tts/{ch}.txt ({len(body):,}자) · {path}")
-        diag_log.log(f"결과 파일 → {path} chars={len(body)}")
+        status_var.set(f"결과 파일 → tts/{ch}.txt ({len(saved_body):,}자) · {path}")
+        diag_log.log(f"결과 파일 → {path} chars={len(saved_body)}")
         _idle("tts 저장 완료")
 
     ttk.Button(
         act2a,
-        text="원클릭 실행 → tts 저장",
+        text="원클릭: 대본 생성",
         command=do_oneclick_write_tts,
     ).pack(side=tk.LEFT, padx=(0, 8))
     ttk.Separator(act2a, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
     ttk.Button(act2a, text="합본 만들기", command=do_build_packet).pack(side=tk.LEFT, padx=(0, 6))
-    ttk.Button(act2a, text="젠스파크 실행 → tts", command=do_run_genspark_chapter).pack(
+    ttk.Button(act2a, text="젠스파크만 실행", command=do_run_genspark_chapter).pack(
         side=tk.LEFT, padx=(0, 6)
     )
     ttk.Button(act2a, text="합본 복사 · 열기", command=do_copy_packet).pack(

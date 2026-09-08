@@ -1,4 +1,17 @@
 {
-  "mp4_folder": "C:/cursor/videt/무협극장/검신귀환록/1부/완결",
-  "mute_files": {}
+  "mp4_folder": "C:\\cursor\\wuxia\\workspace\\swardmaster\\2부\\완결\\mp4",
+  "mute_files": {
+    "01.mp4": "sound",
+    "13.mp4": "sound",
+    "14.mp4": "sound",
+    "15.mp4": "sound",
+    "16.mp4": "sound",
+    "17.mp4": "sound",
+    "18.mp4": "sound",
+    "19.mp4": "sound",
+    "20.mp4": "sound",
+    "21.mp4": "sound",
+    "22.mp4": "sound"
+  },
+  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/2부/완결"
 }

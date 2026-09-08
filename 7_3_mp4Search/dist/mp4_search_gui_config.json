@@ -1,10 +1,10 @@
 {
-  "mp4_dir": "C:\\cursor\\wuxia\\workspace\\swardmaster\\2부\\21장\\mp4",
+  "mp4_dir": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\33장\\mp4",
   "download_dir": "C:\\Users\\nh2015005\\Downloads",
   "preview_pane_width": 520,
   "burn_subtitles": true,
-  "srt_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\2부\\21장\\mp3\\new.srt",
-  "mp3_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\2부\\21장\\mp3\\all.mp3",
+  "srt_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\33장\\mp3\\new.srt",
+  "mp3_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\33장\\mp3\\all.mp3",
   "play_loop": false,
   "download_mp4_inputs": {},
   "mp4_play_modes": {
@@ -19,5 +19,5 @@
     "3.mp4": "mute",
     "5.mp4": "mute"
   },
-  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/2부/21장"
+  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/3부/33장"
 }

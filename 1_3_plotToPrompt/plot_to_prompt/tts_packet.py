@@ -42,24 +42,61 @@ def looks_like_genspark_packet(text: str) -> bool:
     return False
 
 
-def resolve_clipboard_body(text: str) -> tuple[str, str | None]:
-    """클립보드 분류. (kind, body) — kind: empty|packet|placeholder|no_markers|body."""
+def _iter_marker_bodies(text: str) -> list[str]:
+    """CHAPTER_START/END 사이 본문들 (플레이스홀더·너무 짧은 것 제외). 등장 순."""
+    out: list[str] = []
+    for m in _MARKER_RE.finditer(text or ""):
+        body = m.group(1).replace("\r\n", "\n").strip()
+        if not body or body in _PLACEHOLDER_BODIES:
+            continue
+        # 합본 지시의 한 줄 예시·잘린 조각 제외
+        if len(body) < 200:
+            continue
+        # 예시 제목 자리표시
+        if body.startswith("제") and "(제목)" in body[:40]:
+            continue
+        out.append(body)
+    return out
+
+
+def resolve_clipboard_body(
+    text: str,
+    *,
+    ignore_bodies: set[str] | frozenset[str] | None = None,
+) -> tuple[str, str | None]:
+    """클립보드 분류. (kind, body) — kind: empty|packet|placeholder|no_markers|body.
+
+    여러 CHAPTER 블록이 있으면 **마지막(최신 응답)** 을 고른다.
+    ``ignore_bodies`` 에 있는 이전 장 본문은 제외한다.
+    """
     if not (text or "").strip():
         return "empty", None
+    bodies = _iter_marker_bodies(text)
+    if ignore_bodies:
+        bodies = [b for b in bodies if b not in ignore_bodies]
+    if bodies:
+        return "body", bodies[-1]
     if looks_like_genspark_packet(text):
         return "packet", None
     m = _MARKER_RE.search(text)
     if not m:
         return "no_markers", None
     body = m.group(1).replace("\r\n", "\n").strip()
-    if not body or body in _PLACEHOLDER_BODIES:
+    if not body or body in _PLACEHOLDER_BODIES or len(body) < 200:
         return "placeholder", None
     return "body", body
 
 
-def extract_chapter_body(text: str) -> str | None:
-    """START/END 사이 본문. 없으면 None. 합본 예시·플레이스홀더는 제외."""
-    kind, body = resolve_clipboard_body(text)
+def extract_chapter_body(
+    text: str,
+    *,
+    ignore_bodies: set[str] | frozenset[str] | None = None,
+) -> str | None:
+    """START/END 사이 본문. 없으면 None.
+
+    페이지에 이전 장·합본 예시가 같이 있어도, ignore 제외 후 **최신** 블록을 고른다.
+    """
+    kind, body = resolve_clipboard_body(text, ignore_bodies=ignore_bodies)
     return body if kind == "body" else None
 
 
@@ -131,6 +168,62 @@ def chapter_tts_path(work_root: Path | str, chapter: int) -> Path:
     return Path(work_root).expanduser() / "tts" / f"{int(chapter)}.txt"
 
 
+_CHAPTER_HEAD_RE = re.compile(
+    r"^제\s*0*(\d+)\s*장\s*[-–—:：·.\s]+\s*(.+)$"
+)
+
+
+def format_tts_heading(chapter: int, title: str) -> str:
+    """``제23장-환(還)의 얼굴`` 형식."""
+    t = (title or "").strip()
+    t = re.sub(r"^제\s*0*\d+\s*장\s*[-–—:：·.\s]*", "", t).strip()
+    if not t:
+        return f"제{int(chapter)}장"
+    return f"제{int(chapter)}장-{t}"
+
+
+def ensure_tts_body_heading(
+    chapter: int,
+    text: str,
+    *,
+    title: str = "",
+) -> str:
+    """본문 맨 위를 ``제N장-제목`` 한 줄로 맞춘다."""
+    ch = int(chapter)
+    body = (text or "").replace("\r\n", "\n").strip()
+    lines = body.split("\n") if body else []
+    first = lines[0].strip() if lines else ""
+
+    resolved = (title or "").strip()
+    m = _CHAPTER_HEAD_RE.match(first)
+    if m:
+        if not resolved:
+            resolved = m.group(2).strip()
+        rest = "\n".join(lines[1:]).lstrip("\n")
+    elif first:
+        plain = re.sub(r"^제\s*0*\d+\s*장\s*[-–—:：·.\s]*", "", first).strip()
+        if not resolved:
+            resolved = plain or first
+            rest = "\n".join(lines[1:]).lstrip("\n")
+        else:
+            title_plain = re.sub(
+                r"^제\s*0*\d+\s*장\s*[-–—:：·.\s]*", "", resolved
+            ).strip()
+            if plain == title_plain or first == title_plain or first == resolved:
+                rest = "\n".join(lines[1:]).lstrip("\n")
+            else:
+                rest = body
+    else:
+        rest = ""
+
+    head = format_tts_heading(ch, resolved)
+    if rest:
+        out = f"{head}\n\n{rest}".rstrip() + "\n"
+    else:
+        out = head + "\n"
+    return out
+
+
 def prev_chapter_tail(work_root: Path | str, chapter: int, *, max_chars: int = _PREV_TAIL) -> str:
     if chapter <= 1:
         return ""
@@ -188,22 +281,37 @@ def build_packet_from_brief(
     parts.append(
         "===== 작성 지시 =====\n"
         f"{chapter}장 본문만 작성하라. WRITE_RULES와 BRIEF 비트를 따른다.\n"
-        "제목 한 줄 다음 본문만. 메타·비트 번호·설명 금지.\n"
+        f"첫 줄은 반드시 ``제{chapter}장-본문제목`` 형식 (예: 제{chapter}장-환(還)의 얼굴).\n"
+        "그 다음 빈 줄 후 본문만. 메타·비트 번호·설명 금지.\n"
         "목표 분량 9,000~11,000자.\n\n"
         "【필수】 출력 전체를 아래 구분자로 감싼다. 구분자 밖에는 아무 글도 쓰지 말 것.\n"
         f"{CHAPTER_START}\n"
-        "(제목 한 줄)\n"
+        f"제{chapter}장-(제목)\n"
         "(본문)\n"
         f"{CHAPTER_END}"
     )
     return "\n\n".join(parts).strip() + "\n", notes
 
 
-def save_chapter_to_tts(work_root: Path | str, chapter: int, text: str) -> Path:
+def save_chapter_to_tts(
+    work_root: Path | str,
+    chapter: int,
+    text: str,
+    *,
+    title: str = "",
+    novel_root: Path | str | None = None,
+) -> Path:
+    """``tts/{장}.txt`` 저장. 맨 위 줄을 ``제N장-제목``으로 맞춘다."""
     ensure_tts(work_root)
     path = chapter_tts_path(work_root, chapter)
-    body = (text or "").replace("\r\n", "\n").strip()
-    if body and not body.endswith("\n"):
-        body += "\n"
+    resolved_title = (title or "").strip()
+    if not resolved_title and novel_root:
+        try:
+            from plot_to_prompt.bible_lookup import load_chapter_meta
+
+            resolved_title = load_chapter_meta(novel_root, chapter).body_title
+        except Exception:
+            resolved_title = ""
+    body = ensure_tts_body_heading(chapter, text, title=resolved_title)
     path.write_text(body, encoding="utf-8")
     return path.resolve()

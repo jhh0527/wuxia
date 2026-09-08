@@ -1,1 +1,79 @@
 [2026-08-30 08:55:37] === 7_4 mp4Merge 1.1.0 시작 log=C:\cursor\wuxia\7_4_mp4Merge\dist\mp4_merge_debug.log ===
+[2026-09-01 08:18:10] === 7_4 mp4Merge 1.1.0 시작 log=C:\cursor\wuxia\7_4_mp4Merge\dist\mp4_merge_debug.log ===
+[2026-09-01 08:18:57] 영상합치기를 시작합니다.
+[2026-09-01 08:18:57] MP4 4개를 자연순서로 합칩니다: 1.mp4, 2.mp4, 3.mp4, 4.mp4
+[2026-09-01 08:19:06] 단순 합치기 — 모든 클립이 본편 규격과 일치합니다.
+[2026-09-01 08:19:06] 기준 규격(다수): 736x400 @24fps h264/aac 48000Hz stereo
+[2026-09-01 08:19:06] merge: 병합이 중지되었습니다.
+[2026-09-01 08:19:06] Traceback (most recent call last):
+  File "mp4_merge\gui_app.py", line 419, in work
+  File "mp4_merge\merge.py", line 133, in merge_folder_to_all
+RuntimeError: 병합이 중지되었습니다.
+[2026-09-01 08:19:33] 영상합치기를 시작합니다.
+[2026-09-01 08:19:33] MP4 4개를 자연순서로 합칩니다: 1.mp4, 2.mp4, 3.mp4, 4.mp4
+[2026-09-01 08:19:37] 단순 합치기 — 모든 클립이 본편 규격과 일치합니다.
+[2026-09-01 08:19:37] 기준 규격(다수): 736x400 @24fps h264/aac 48000Hz stereo
+[2026-09-01 08:19:39] 단순 합치기 — 규격 맞춘 클립으로 무손실 이어붙이기(copy)
+[2026-09-01 08:19:39] concat list → all.concat.txt (4개)
+[2026-09-01 08:19:39] mode: -c copy (무손실 이어붙이기)
+[2026-09-01 08:19:40] ffmpeg: C:\Users\nh2015005\AppData\Local\Microsoft\WinGet\Links\ffmpeg.EXE -y -progress pipe:1 -nostats -f concat -safe 0 -i C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.concat.txt -c copy -movflags +faststart C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.concat.tmp.mp4
+[2026-09-01 08:19:43] 무손실 빠른 병합 완료
+[2026-09-01 08:19:43] ⏱️타임스탬프
+[2026-09-01 08:19:43] 00:00:00 1.mp4
+[2026-09-01 08:19:43] 00:00:15 2.mp4
+[2026-09-01 08:19:43] 00:00:30 3.mp4
+[2026-09-01 08:19:44] 00:00:45 4.mp4
+[2026-09-01 08:19:44] 영상 합치기 완료: C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.mp4 (26MB) (소요 시간 00:00:10)
+[2026-09-01 08:25:31] === 7_4 mp4Merge 1.1.0 시작 log=C:\cursor\wuxia\7_4_mp4Merge\dist\mp4_merge_debug.log ===
+[2026-09-01 08:28:40] === 7_4 mp4Merge 1.1.1 시작 log=C:\cursor\wuxia\7_4_mp4Merge\dist\mp4_merge_debug.log ===
+[2026-09-01 08:28:56] 영상합치기를 시작합니다.
+[2026-09-01 08:28:56] MP4 11개를 자연순서로 합칩니다: 01.mp4, 13.mp4, 14.mp4, 15.mp4, 16.mp4, 17.mp4, 18.mp4, 19.mp4, 20.mp4, 21.mp4, 22.mp4
+[2026-09-01 08:29:06] 단순 합치기 — 모든 클립이 본편 규격과 일치합니다.
+[2026-09-01 08:29:06] 기준 규격(다수): 1920x1080 @30fps h264/aac 44100Hz stereo
+[2026-09-01 08:29:06] 음소거 패드: 01.mp4 → _mute_0001.mp4
+[2026-09-01 08:29:07] 규격 맞춤 재인코딩(이 파일만): 01.mp4 736x400@24 44100Hz → 1920x1080@30 44100Hz
+[2026-09-01 08:29:32] 단순 합치기 — 규격 맞춘 클립으로 무손실 이어붙이기(copy)
+[2026-09-01 08:29:32] concat list → all.concat.txt (11개)
+[2026-09-01 08:29:32] mode: -c copy (무손실 이어붙이기)
+[2026-09-01 08:29:35] ffmpeg: C:\Users\nh2015005\AppData\Local\Microsoft\WinGet\Links\ffmpeg.EXE -y -progress pipe:1 -nostats -f concat -safe 0 -i C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.concat.txt -c copy -movflags +faststart C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.concat.tmp.mp4
+[2026-09-01 08:32:01] 무손실 빠른 병합 완료
+[2026-09-01 08:32:01] ⏱️타임스탬프
+[2026-09-01 08:32:01] 00:00:00 01.mp4
+[2026-09-01 08:32:01] 00:01:00 13.mp4
+[2026-09-01 08:32:02] 00:22:10 14.mp4
+[2026-09-01 08:32:02] 00:46:04 15.mp4
+[2026-09-01 08:32:03] 01:28:42 16.mp4
+[2026-09-01 08:32:03] 01:58:37 17.mp4
+[2026-09-01 08:32:03] 02:13:32 18.mp4
+[2026-09-01 08:32:03] 02:44:34 19.mp4
+[2026-09-01 08:32:04] 03:11:49 20.mp4
+[2026-09-01 08:32:04] 03:33:21 21.mp4
+[2026-09-01 08:32:04] 03:58:27 22.mp4
+[2026-09-01 08:32:05] 영상 합치기 완료: C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.mp4 (4.60G) (소요 시간 00:03:08)
+[2026-09-01 16:13:36] === 7_4 mp4Merge 1.1.1 시작 log=C:\cursor\wuxia\7_4_mp4Merge\dist\mp4_merge_debug.log ===
+[2026-09-01 16:13:45] 영상합치기를 시작합니다.
+[2026-09-01 16:13:45] MP4 11개를 자연순서로 합칩니다: 01.mp4, 13.mp4, 14.mp4, 15.mp4, 16.mp4, 17.mp4, 18.mp4, 19.mp4, 20.mp4, 21.mp4, 22.mp4
+[2026-09-01 16:14:01] === 7_4 mp4Merge 1.1.1 시작 log=C:\cursor\wuxia\7_4_mp4Merge\dist\mp4_merge_debug.log ===
+[2026-09-01 16:14:11] 영상합치기를 시작합니다.
+[2026-09-01 16:14:11] MP4 11개를 자연순서로 합칩니다: 01.mp4, 13.mp4, 14.mp4, 15.mp4, 16.mp4, 17.mp4, 18.mp4, 19.mp4, 20.mp4, 21.mp4, 22.mp4
+[2026-09-01 16:14:25] 단순 합치기 — 규격이 다른 파일만 본편 규격(1920x1080 @30fps aac 44100Hz)으로 맞춥니다: 01.mp4
+[2026-09-01 16:14:25] 기준 규격(다수): 1920x1080 @30fps h264/aac 44100Hz stereo
+[2026-09-01 16:14:26] 규격 맞춤 재인코딩(이 파일만): 01.mp4 736x400@24 48000Hz → 1920x1080@30 44100Hz
+[2026-09-01 16:14:59] 단순 합치기 — 규격 맞춘 클립으로 무손실 이어붙이기(copy)
+[2026-09-01 16:14:59] concat list → all.concat.txt (11개)
+[2026-09-01 16:14:59] mode: -c copy (무손실 이어붙이기)
+[2026-09-01 16:15:03] ffmpeg: C:\Users\nh2015005\AppData\Local\Microsoft\WinGet\Links\ffmpeg.EXE -y -progress pipe:1 -nostats -f concat -safe 0 -i C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.concat.txt -c copy -movflags +faststart C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.concat.tmp.mp4
+[2026-09-01 16:17:15] 무손실 빠른 병합 완료
+[2026-09-01 16:17:15] ⏱️타임스탬프
+[2026-09-01 16:17:15] 00:00:00 01.mp4
+[2026-09-01 16:17:15] 00:01:00 13.mp4
+[2026-09-01 16:17:17] 00:22:10 14.mp4
+[2026-09-01 16:17:17] 00:46:04 15.mp4
+[2026-09-01 16:17:17] 01:28:42 16.mp4
+[2026-09-01 16:17:18] 01:58:37 17.mp4
+[2026-09-01 16:17:18] 02:13:32 18.mp4
+[2026-09-01 16:17:19] 02:44:34 19.mp4
+[2026-09-01 16:17:19] 03:11:49 20.mp4
+[2026-09-01 16:17:20] 03:33:21 21.mp4
+[2026-09-01 16:17:20] 03:58:27 22.mp4
+[2026-09-01 16:17:21] 영상 합치기 완료: C:\cursor\wuxia\workspace\swardmaster\2부\완결\mp4\all.mp4 (4.60G) (소요 시간 00:03:10)

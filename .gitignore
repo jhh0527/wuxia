@@ -31,6 +31,4 @@ config/wisdom_workspace.json
 *.pkg
 *.pyz
 *.exe
-*.mp3
-**/mp4/
-*.mp4
+dist/

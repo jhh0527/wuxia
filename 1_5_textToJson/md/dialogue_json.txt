@@ -61,7 +61,9 @@
    - 시험관 → `examiner`
    - 원로·서지원 등 원로급 → `elder`
    - 검성 → `geomseong`
-   - 회색 도포 노인·마교 백발 노인·판의 주인 → `noin`  (**hoesaek 금지**, `noin` 사용)
+   - 묵허(默虛) → `mukheo`  (**noin·hyeonmu 와 분리**)
+   - 회색 도포 노인·마교 백발 노인·판의 주인(묵허 제외) → `noin`  (**hoesaek 금지**)
+   - 현무진인·환 → `hyeonmu`  (**noin·mukheo 와 분리**, `hwan` 금지)
    - 엄중산 → `eom`  (**noin 과 분리**)
    - 유림 → `yurim`
    - 왕삼도 → `wang`
@@ -75,6 +77,7 @@
    - 잿빛 「진」 → `ashjin`
    - 적위대장·적위 → `jeokwi`
    - 사천당가 사절 → `dangga`
+   - 목연 → `mokyeon`
 3. voices 에 없는 단역·군중·이름 없는 사형/제자 → `mob`
 4. `chung`, `seo`, `sahyung` 같은 **임의 로마자 키 금지**
 

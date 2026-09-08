@@ -1,8 +1,8 @@
 {
-  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/2부/16장",
-  "srt_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\2부\\16장\\mp3\\all.srt",
-  "tts_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\2부\\16장\\tts\\16.json",
-  "md_file": "C:\\Users\\NH2015~1\\AppData\\Local\\Temp\\_MEI178922\\md\\srt_correct.md",
-  "command": "첨부한 「srt_correct.md」 지침에 따라, 첨부한 「_srt_edit_script_16.txt」(tts/xx.json 의 text 원문)을 기준으로 첨부한 「all.srt」(STT SRT) 중 원본과 다른 부분만 수정해 주세요. 띄어쓰기도 대본과 동일하게 맞추고, STT가 붙여 쓴 말은 공백을 복원하세요. 대본에 없는 구간은 SRT 원문을 유지하고, 결과는 start 와 end 를 구분자로 써서 (start와 end 사이 내용만 교정 SRT) 출력해 주세요.",
+  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/3부/35장",
+  "srt_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\35장\\mp3\\all.srt",
+  "tts_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\35장\\tts\\35.json",
+  "md_file": "C:\\Users\\NH2015~1\\AppData\\Local\\Temp\\_MEI281362\\md\\srt_correct.md",
+  "command": "첨부한 「srt_correct.md」 지침에 따라, 첨부한 「_srt_edit_script_35.txt」(tts/xx.json 의 text 원문)을 기준으로 첨부한 「all.srt」(STT SRT) 중 원본과 다른 부분만 수정해 주세요. 띄어쓰기도 대본과 동일하게 맞추고, STT가 붙여 쓴 말은 공백을 복원하세요. 대본에 없는 구간은 SRT 원문을 유지하고, 결과는 start 와 end 를 구분자로 써서 (start와 end 사이 내용만 교정 SRT) 출력해 주세요.",
   "email": "dream7515@gmail.com"
 }

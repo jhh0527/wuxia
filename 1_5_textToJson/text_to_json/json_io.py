@@ -697,6 +697,18 @@ _SPEAKER_ALIASES: dict[str, str] = {
     "redguard": "jeokwi",
     "dangga": "dangga",
     "tangclan": "dangga",
+    "mokyeon": "mokyeon",
+    "mokyun": "mokyeon",
+    "mogyeon": "mokyeon",
+    "hyeonmu": "hyeonmu",
+    "hyunmu": "hyeonmu",
+    "hyeonmujin": "hyeonmu",
+    "hyunmujin": "hyeonmu",
+    "hwan": "hyeonmu",
+    "hwanjinin": "hyeonmu",
+    "mukheo": "mukheo",
+    "meokheo": "mukheo",
+    "mukhe": "mukheo",
 }
 
 _TAG_START_RE = re.compile(r"^\s*\[[A-Za-z][A-Za-z0-9_\-]*\]")
