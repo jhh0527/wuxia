@@ -1,19 +1,23 @@
 # -*- coding: utf-8 -*-
-"""타임라인 합성 구간 자막 — 4_1_video(scenevid) 와 동일 스타일(하단 중앙, Alignment=2)."""
+"""타임라인 합성 구간 자막 — 하단 중앙, 검은 글자 + 흰 테두리."""
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from pathlib import Path
 
 COMPOSE_SUBTITLE_FONT_FILE = "GmarketSansTTFBold.ttf"
-COMPOSE_SUBTITLE_FONT_NAME = "Gmarket Sans TTF"
+# libass: "Gmarket Sans TTF" → 맑은고딕 fallback. "Gmarket Sans TTF Bold" → fontsdir TTF 사용.
+COMPOSE_SUBTITLE_FONT_NAME = "Gmarket Sans TTF Bold"
+COMPOSE_SUBTITLE_FONT_SIZE = 18
+COMPOSE_SUBTITLE_MARGIN_V = 18
+COMPOSE_SUBTITLE_OUTLINE = 1
 COMPOSE_SUBTITLE_FORCE_STYLE = (
-    f"FontName={COMPOSE_SUBTITLE_FONT_NAME},FontSize=25,Bold=1,"
-    "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-    "BorderStyle=1,Outline=2,Shadow=0,MarginV=32,Alignment=2"
+    f"FontName={COMPOSE_SUBTITLE_FONT_NAME},FontSize={COMPOSE_SUBTITLE_FONT_SIZE},Bold=0,"
+    "PrimaryColour=&H00000000,OutlineColour=&H00FFFFFF,"
+    f"BorderStyle=1,Outline={COMPOSE_SUBTITLE_OUTLINE},Shadow=0,"
+    f"MarginV={COMPOSE_SUBTITLE_MARGIN_V},Alignment=2"
 )
 
 _MAX_CHARS_PER_LINE_IN_CUE = 44
@@ -155,7 +159,7 @@ def subtitle_path_filter_arg(
     ffmpeg_cwd: Path | None = None,
     play_res: tuple[int, int] = (1920, 1080),
 ) -> str:
-    """FFmpeg ``subtitles=`` 필터 인자 (4_1_video 와 동일)."""
+    """FFmpeg ``subtitles=`` 필터 (SRT + force_style — 크기·위치 고정)."""
     s_abs = srt.resolve()
     pw, ph = play_res
     fs = _escape_ffmpeg_force_style(COMPOSE_SUBTITLE_FORCE_STYLE)

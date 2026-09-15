@@ -1,0 +1,25 @@
+---
+description: 무협 소설(workspace) 설정 일관성 — 바이블 참조·모순 경고
+globs: "**/*.md"
+alwaysApply: false
+---
+
+# 무협 소설 일관성
+
+이 폴더(`workspace/`) 아래 `{slug}/` 작품에 적용.  
+저장소 루트 Rule `wuxia-novel-consistency.mdc`와 동일 취지.
+
+## 필수 참조
+
+소설 루트의 `world.md`, `characters.md`, `martial_arts.md`, `timeline.md`,
+`relationships.md`, `foreshadowing.md`, `events.md`, `chapter_map.md`, `CURSOR_RULES.md`.
+
+LOOK: `art/characters.json` · 본문 설정은 `characters.md` 우선.
+
+## 모순
+
+짧게 경고 · 임의 덮어쓰기 금지 · 필요 시 `review.md`.
+
+## 하지 말 것
+
+사망 무단 재등장 · 정보 격리 위반 · BRIEF 없는 신규 주요 사건으로 분량 채우기.

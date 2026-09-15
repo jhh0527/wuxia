@@ -18,7 +18,9 @@ from mp4_search.image_effects import (
     PNG_EFFECT_LABELS_LIST,
     PNG_EFFECT_ZOOM_IN,
     PNG_EFFECT_ZOOM_OUT,
+    asset_effect_locked,
     normalize_png_effect,
+    png_effect_for_asset,
     png_effect_label,
 )
 from mp4_search.mp4_play_modes import (
@@ -265,6 +267,11 @@ def main(*, container: tk.Misc | None = None) -> None:
 
     def _mp4_asset_number(path: Path | None) -> int | None:
         if path is None or not path.is_file():
+            return None
+        return parse_srt_asset_number(path.name)
+
+    def _png_asset_number(path: Path | None) -> int | None:
+        if path is None:
             return None
         return parse_srt_asset_number(path.name)
 
@@ -1083,7 +1090,7 @@ def main(*, container: tk.Misc | None = None) -> None:
             if row.png_path and row.png_path.is_file():
                 n = parse_srt_asset_number(row.png_path.name)
                 if n is not None:
-                    fx[n] = normalize_png_effect(row.png_effect)
+                    fx[n] = png_effect_for_asset(n, row.png_effect)
         return fx
 
     def _png_asset_groups() -> list[tuple[int, list[str]]]:
@@ -1116,13 +1123,23 @@ def main(*, container: tk.Misc | None = None) -> None:
             safe_messagebox(root, "showinfo", "7_3 mp4Search", "PNG가 지정된 이미지가 없습니다.")
             return
         n_set = 0
-        for idx, (_asset, iids) in enumerate(groups):
+        n_locked = 0
+        idx = 0
+        for asset, iids in groups:
+            if asset_effect_locked(asset):
+                for iid in iids:
+                    rows[iid].png_effect = PNG_EFFECT_FIXED
+                    refresh_tree_values(iid)
+                n_locked += 1
+                continue
             effect = PNG_EFFECT_ZOOM_IN if idx % 2 == 0 else PNG_EFFECT_ZOOM_OUT
             for iid in iids:
                 rows[iid].png_effect = effect
                 refresh_tree_values(iid)
+            idx += 1
             n_set += 1
-        status_var.set(f"이미지 효과 — 줌인/줌아웃 번갈아 {n_set}개 적용")
+        tail = f" · SRT_000 고정 {n_locked}개 제외" if n_locked else ""
+        status_var.set(f"이미지 효과 — 줌인/줌아웃 번갈아 {n_set}개 적용{tail}")
 
     def reset_all_png_effects() -> None:
         if not rows:
@@ -1368,7 +1385,11 @@ def main(*, container: tk.Misc | None = None) -> None:
                 mp4_mode_disp,
                 mp4_mute_disp,
                 png_name,
-                png_effect_label(row.png_effect),
+                png_effect_label(
+                    png_effect_for_asset(
+                        _png_asset_number(row.png_path), row.png_effect
+                    )
+                ),
                 status,
             ),
         )
@@ -1539,16 +1560,8 @@ def main(*, container: tk.Misc | None = None) -> None:
             png_owners = folder_asset_display_owners(asset_png, cues, asset_starts)
             for srt_id, text, st_ms, en_ms in sorted(cues, key=lambda c: int(c[0])):
                 asset_sec = timeline_asset_number(st_ms / 1000.0)
-                start_sec = st_ms / 1000.0
-                # 같은 파일 번호의 첫 SRT 줄에만 MP4/PNG 표시 (다른 줄에 중복 연결 방지)
-                canonical = asset_starts.get(asset_sec)
-                owns_asset = canonical is not None and abs(start_sec - canonical) < 0.001
-                mp4_path = folder_asset_for_cue_row(
-                    srt_id, asset_sec, asset_mp4, mp4_owners, owns_asset=owns_asset
-                )
-                png_path = folder_asset_for_cue_row(
-                    srt_id, asset_sec, asset_png, png_owners, owns_asset=owns_asset
-                )
+                mp4_path = folder_asset_for_cue_row(srt_id, asset_sec, asset_mp4, mp4_owners)
+                png_path = folder_asset_for_cue_row(srt_id, asset_sec, asset_png, png_owners)
                 cue_one = (text or "").strip().replace("\n", " ")
                 dur = max(0.0, (en_ms - st_ms) / 1000.0)
                 iid = tree.insert(
@@ -2230,8 +2243,9 @@ def main(*, container: tk.Misc | None = None) -> None:
                     else:
                         refresh_tree_values(iid)
                 elif col_id == _COL_PNG_FX:
-                    row.png_effect = normalize_png_effect(
-                        PNG_EFFECT_BY_LABEL.get(val, val)
+                    row.png_effect = png_effect_for_asset(
+                        _png_asset_number(row.png_path),
+                        PNG_EFFECT_BY_LABEL.get(val, val),
                     )
                     refresh_tree_values(iid)
                 elif col_id == _COL_MP4_MODE:
@@ -2287,6 +2301,13 @@ def main(*, container: tk.Misc | None = None) -> None:
         _edit_col = col_id
 
         if col_id == _COL_PNG_FX:
+            if asset_effect_locked(_png_asset_number(row.png_path)):
+                _edit_iid = None
+                _edit_col = None
+                row.png_effect = PNG_EFFECT_FIXED
+                refresh_tree_values(iid)
+                status_var.set("SRT_000(제목 카드)은 이미지 효과가 고정입니다.")
+                return
             cb = ttk.Combobox(
                 tree,
                 values=list(PNG_EFFECT_LABELS_LIST),
@@ -2715,19 +2736,13 @@ def main(*, container: tk.Misc | None = None) -> None:
         png_owners = folder_asset_display_owners(asset_png, cues, asset_starts) if cues else {}
         for iid, row in rows.items():
             asset = row_asset_sec(row)
-            canonical = asset_starts.get(asset)
-            owns_asset = canonical is not None and abs(row.timeline_start_sec - canonical) < 0.001
-            if owns_asset:
-                mp4 = folder_asset_for_cue_row(
-                    row.srt_id, asset, asset_mp4, mp4_owners, owns_asset=True
-                )
+            mp4 = folder_asset_for_cue_row(row.srt_id, asset, asset_mp4, mp4_owners)
+            png = folder_asset_for_cue_row(row.srt_id, asset, asset_png, png_owners)
+            if mp4 or png:
                 if mp4:
                     row.mp4_path = mp4
                     row.preview_path = mp4
                     _sync_row_mp4_mode(row)
-                png = folder_asset_for_cue_row(
-                    row.srt_id, asset, asset_png, png_owners, owns_asset=True
-                )
                 if png:
                     row.png_path = png
             elif row.mp4_path and not row.mp4_path.is_file():

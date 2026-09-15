@@ -17,6 +17,7 @@ from png2jpg.converter import (
     ConvertResult,
     ConvertSkip,
     convert_images,
+    convert_selected_files,
     DEFAULT_JPEG_QUALITY,
     iter_source_images,
 )
@@ -257,11 +258,13 @@ def main(
         log.configure(state=tk.DISABLED)
 
     btn_run: ttk.Button
+    btn_pick: ttk.Button
     btn_mp4: ttk.Button
 
     def set_busy(on: bool) -> None:
         state = tk.DISABLED if on else tk.NORMAL
         btn_run.configure(state=state)
+        btn_pick.configure(state=state)
         btn_mp4.configure(state=state)
         for w in browse_widgets:
             try:
@@ -373,6 +376,96 @@ def main(
         status_var.set(f"변환 시작… 대상 {n_pre}개 파일")
         threading.Thread(target=work, daemon=True).start()
 
+    def run_convert_selected() -> None:
+        initial = in_var.get().strip()
+        init_dir = folder_dialog_initial(
+            Path(initial) if initial and Path(initial).is_dir() else default_input_dir(),
+        )
+        picked = filedialog.askopenfilenames(
+            title="변환할 이미지 선택 (같은 폴더에 JPG 저장)",
+            initialdir=init_dir,
+            filetypes=[
+                ("PNG / JPG", "*.png;*.jpg;*.jpeg;*.PNG;*.JPG;*.JPEG"),
+                ("PNG", "*.png;*.PNG"),
+                ("JPG", "*.jpg;*.jpeg;*.JPG;*.JPEG"),
+                ("모든 파일", "*.*"),
+            ],
+        )
+        if not picked:
+            return
+
+        sources = [Path(p) for p in picked]
+        q = max(60, min(95, int(quality_var.get())))
+
+        def work() -> None:
+            err: Exception | None = None
+            results: list[ConvertResult] = []
+            skipped: list[ConvertSkip] = []
+
+            def on_prog(i: int, total: int, item: ConvertResult | ConvertSkip) -> None:
+                pct = 0 if total <= 0 else int(100 * i / total)
+
+                def ui() -> None:
+                    prog.configure(value=pct)
+                    if isinstance(item, ConvertResult):
+                        saved = item.saved_bytes
+                        status_var.set(
+                            f"특정 이미지 변환… {pct}% ({i}/{total}) — {item.output.name} "
+                            f"({item.size_px[0]}×{item.size_px[1]}, -{saved // 1024}KB)"
+                        )
+                        note = f" · {item.match_note}" if item.match_note else ""
+                        log_line(
+                            f"[{item.output}] ← {item.source.name}{note} "
+                            f"({item.bytes_before // 1024}KB → {item.bytes_after // 1024}KB)"
+                        )
+                    else:
+                        log_line(f"건너뜀: {item.source.name} — {item.reason}")
+
+                root.after(0, ui)
+
+            try:
+                results, skipped = convert_selected_files(
+                    sources,
+                    include_jpg=bool(include_jpg_var.get()),
+                    quality=q,
+                    on_progress=on_prog,
+                )
+            except Exception as e:
+                err = e
+                traceback.print_exc()
+
+            def done() -> None:
+                set_busy(False)
+                prog.configure(value=100 if not err else 0)
+                if err:
+                    messagebox.showerror("오류", str(err))
+                    status_var.set("오류")
+                    return
+                total_saved = sum(r.saved_bytes for r in results)
+                folders = sorted({str(r.output.parent) for r in results})
+                folder_note = folders[0] if len(folders) == 1 else f"{len(folders)}개 폴더"
+                status_var.set(
+                    f"완료: {len(results)}개 저장, 건너뜀 {len(skipped)}개 "
+                    f"(절약 {total_saved // 1024}KB) → {folder_note}"
+                )
+                show_toast(
+                    root,
+                    f"{len(results)}개 JPG 저장\n"
+                    f"건너뜀: {len(skipped)}개\n"
+                    f"용량 절약: 약 {total_saved // 1024} KB",
+                    title="3_2 pngToJpg · 특정 이미지 완료",
+                )
+
+            root.after(0, done)
+
+        set_busy(True)
+        prog.configure(value=0)
+        log.configure(state=tk.NORMAL)
+        log.delete("1.0", tk.END)
+        log.configure(state=tk.DISABLED)
+        status_var.set(f"특정 이미지 변환 시작… {len(sources)}개 파일")
+        threading.Thread(target=work, daemon=True).start()
+
     def run_copy_to_mp4() -> None:
         jpg = Path(out_var.get().strip())
         if not jpg.is_dir():
@@ -426,6 +519,12 @@ def main(
     row_btns.grid(row=10, column=0, sticky="ew", pady=(8, 0))
     btn_run = ttk.Button(row_btns, text="PNG → SRT_XXX.jpg 변환", command=run_convert)
     btn_run.pack(side=tk.LEFT)
+    btn_pick = ttk.Button(
+        row_btns,
+        text="특정 이미지 → JPG (같은 폴더)",
+        command=run_convert_selected,
+    )
+    btn_pick.pack(side=tk.LEFT, padx=(8, 0))
     btn_mp4 = ttk.Button(row_btns, text="mp4 복사", command=run_copy_to_mp4)
     btn_mp4.pack(side=tk.LEFT, padx=(8, 0))
 

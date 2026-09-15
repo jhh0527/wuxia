@@ -15,18 +15,23 @@ from pathlib import Path
 from tkinter import filedialog, font as tkfont, ttk
 
 from scene_image import __version__
+from scene_image.character_bible import clear_registry_cache
 from scene_image.credentials import load_credentials, save_credentials
+from scene_image.scene_parse import find_previous_reference_png
 from scene_image.genspark_image import (
     build_generate_command_from_sources,
+    clear_chrome_session_restore,
     close_chrome_debug,
     get_image_session,
     has_playwright,
     image_profile_dir,
     open_browser_for_account,
     preferred_genspark_url,
+    reset_image_session,
     set_tab_log_png_dir,
 )
 from scene_image.chrome_slot import (
+    configure_chrome_slot_module,
     count_claimable_slots,
     ensure_chrome_slot,
     get_active_slot,
@@ -35,7 +40,10 @@ from scene_image.chrome_slot import (
 from scene_image.image_log import append_fail_log, append_image_log
 from scene_image.limit_detect import (
     AiImageLimitError,
+    BrowserClosedError,
     format_reset_at,
+    is_browser_closed_error,
+    parse_reset_at,
     parse_session_start_hm,
     resolve_limit_reset_at,
     text_is_near_limit_only,
@@ -59,15 +67,22 @@ from scene_image.pipeline_config import load_pipeline_config, model_name_variant
 from scene_image.scene_parse import (
     SceneLine,
     build_interval_scenes,
+    is_real_scene_prompt,
     parse_scene_script,
     parse_sec_selection,
     png_already_exists,
+    previous_reference_slot_sec,
     scene_png_path,
+    srt_dialogue_for_window,
+    srt_dialogue_until_next_scene,
+    srt_png_name,
 )
 from scene_image.settings import (
     load_gui_settings,
     load_model_selector,
     save_gui_settings,
+    set_config_app,
+    set_config_dist,
     set_config_slot,
 )
 from wisdom_workspace import folder_dialog_initial, touch_workspace_from_path
@@ -115,6 +130,26 @@ def _load_shutdown_after_complete(cfg: dict[str, str]) -> bool:
     return False
 
 
+def _reset_at_from_probe(probed: dict | None) -> datetime | None:
+    """``probe_limit_reset`` 결과에서 재설정 시각 추출."""
+    if not probed:
+        return None
+    raw_at = (probed or {}).get("reset_at")
+    if raw_at:
+        try:
+            return datetime.strptime(str(raw_at), "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            parsed = resolve_limit_reset_at(str(raw_at))
+            if parsed is not None:
+                return parsed
+    snip = str((probed or {}).get("snippet") or "")
+    if snip:
+        parsed2 = parse_reset_at(snip)
+        if parsed2 is not None:
+            return parsed2
+    return None
+
+
 def _looks_like_limit_error(err: str) -> bool:
     if isinstance(err, AiImageLimitError):
         return True
@@ -125,34 +160,72 @@ def _looks_like_limit_error(err: str) -> bool:
     return bool(_LIMIT_ERR_RE.search(s)) or text_looks_like_limit(s)
 
 
-def _resolve_scene_image_exe() -> Path | None:
-    """독립 2_5_sceneImage_gui.exe 경로 (허브·소스 실행 포함)."""
+def _format_scene_time(sec: int) -> str:
+    sec = max(0, int(sec))
+    m, s = divmod(sec, 60)
+    if sec >= 3600:
+        h, m = divmod(m, 60)
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _resolve_scene_image_exe(*, script_preview: bool = False) -> Path | None:
+    """독립 GUI exe 경로 (허브·소스 실행 포함)."""
+    exe_name = (
+        "2_7_sceneImageScript_gui.exe"
+        if script_preview
+        else "2_5_sceneImage_gui.exe"
+    )
+    module_name = "2_7_sceneImageScript" if script_preview else "2_5_sceneImage"
     if getattr(sys, "frozen", False):
         exe = Path(sys.executable).resolve()
-        if exe.name.casefold() == "2_5_sceneimage_gui.exe":
+        if exe.name.casefold() == exe_name.casefold():
             return exe
     try:
         from wisdom_root import resolve_wisdom_root
 
-        cand = resolve_wisdom_root() / "2_5_sceneImage" / "dist" / "2_5_sceneImage_gui.exe"
+        cand = resolve_wisdom_root() / module_name / "dist" / exe_name
         if cand.is_file():
             return cand
     except Exception:
         pass
-    cand = Path(__file__).resolve().parents[1] / "dist" / "2_5_sceneImage_gui.exe"
-    return cand if cand.is_file() else None
+    cand = Path(__file__).resolve().parents[1] / "dist" / exe_name
+    if cand.is_file():
+        return cand
+    if script_preview:
+        alt = (
+            Path(__file__).resolve().parents[2]
+            / "2_7_sceneImageScript"
+            / "dist"
+            / exe_name
+        )
+        return alt if alt.is_file() else None
+    return None
 
 
-def _spawn_scene_image_instance() -> None:
-    """다른 Chrome 슬롯으로 2_5_sceneImage 를 병렬 실행."""
+def _spawn_scene_image_instance(*, script_preview: bool = False) -> None:
+    """다른 Chrome 슬롯으로 sceneImage(또는 Script) 를 병렬 실행."""
+    label = "sceneImageScript" if script_preview else "sceneImage"
+    exe_name = (
+        "2_7_sceneImageScript_gui.exe"
+        if script_preview
+        else "2_5_sceneImage_gui.exe"
+    )
     free = count_claimable_slots()
     if free <= 0:
         raise RuntimeError(
             "ChromeDebug 슬롯이 모두 사용 중입니다 (최대 8개).\n"
-            "다른 sceneImage 창을 닫은 뒤 다시 시도하세요."
+            f"다른 {label} 창을 닫은 뒤 다시 시도하세요."
         )
-    exe = _resolve_scene_image_exe()
-    module_dir = Path(__file__).resolve().parents[1]
+    exe = _resolve_scene_image_exe(script_preview=script_preview)
+    if script_preview:
+        module_dir = (
+            Path(__file__).resolve().parents[2] / "2_7_sceneImageScript"
+        )
+        if not module_dir.is_dir():
+            module_dir = Path(__file__).resolve().parents[1]
+    else:
+        module_dir = Path(__file__).resolve().parents[1]
     kwargs: dict = {"close_fds": True}
     if sys.platform == "win32":
         kwargs["creationflags"] = (
@@ -162,10 +235,14 @@ def _spawn_scene_image_instance() -> None:
         kwargs["cwd"] = str(exe.parent)
         subprocess.Popen([str(exe)], **kwargs)
         return
-    launcher = module_dir / "run_scene_image_gui.py"
+    launcher = (
+        module_dir / "run_scene_image_script_gui.py"
+        if script_preview
+        else module_dir / "run_scene_image_gui.py"
+    )
     if not launcher.is_file():
         raise RuntimeError(
-            "2_5_sceneImage_gui.exe 를 찾을 수 없습니다.\n"
+            f"{exe_name} 를 찾을 수 없습니다.\n"
             f"build 후 dist 에 exe 가 있어야 합니다.\n({module_dir / 'dist'})"
         )
     env = os.environ.copy()
@@ -187,7 +264,29 @@ def _parse_manual_secs(text: str, available_secs: list[int] | None = None) -> li
     return parse_sec_selection(text, available_secs)
 
 
-def main(*, container: tk.Misc | None = None) -> None:
+def _parse_single_sec(text: str) -> int | None:
+    """단일 이미지 번호 — ``120`` · ``SRT_120``."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    m = re.match(r"^SRT[_\s-]?(\d{1,6})\s*$", raw, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    if raw.isdigit():
+        return int(raw)
+    return None
+
+
+def main(*, container: tk.Misc | None = None, script_preview: bool = False) -> None:
+    app_label = "2_7 sceneImageScript" if script_preview else "2_5 sceneImage"
+    if script_preview:
+        configure_chrome_slot_module(
+            base_port=9262,
+            lock_dir=Path(r"C:\ChromeDebug_2_7_script\.slots"),
+            legacy_user_data=Path(r"C:\ChromeDebug_2_7_script"),
+            user_data_slot_prefix=Path(r"C:\ChromeDebug_2_7_script_slot"),
+        )
+        set_config_app("script")
     from wisdom_gui_host import (
         apply_window_chrome,
         bind_close,
@@ -202,10 +301,15 @@ def main(*, container: tk.Misc | None = None) -> None:
     )
 
     root, standalone = tk_host(container)
-    if not standalone and getattr(root, "_scene_image_gui_built", False):
+    hub_flag = (
+        "_scene_image_script_gui_built"
+        if script_preview
+        else "_scene_image_gui_built"
+    )
+    if not standalone and getattr(root, hub_flag, False):
         return
     if not standalone:
-        setattr(root, "_scene_image_gui_built", True)
+        setattr(root, hub_flag, True)
 
     try:
         chrome_slot = ensure_chrome_slot()
@@ -213,7 +317,7 @@ def main(*, container: tk.Misc | None = None) -> None:
         if standalone:
             from tkinter import messagebox
 
-            messagebox.showerror("2_5 sceneImage", str(e))
+            messagebox.showerror(app_label, str(e))
             return
         raise
     set_config_slot(chrome_slot.index)
@@ -222,11 +326,11 @@ def main(*, container: tk.Misc | None = None) -> None:
         root,
         standalone,
         title=(
-            f"2_5 sceneImage {__version__} "
+            f"{app_label} {__version__} "
             f"[{chrome_slot.label}]"
         ),
-        minsize=(780, 560),
-        geometry="960x700",
+        minsize=(900 if script_preview else 780, 680),
+        geometry="1120x820" if script_preview else "960x780",
     )
     fam, sz = _default_font()
     root.option_add("*Font", (fam, sz))
@@ -244,10 +348,25 @@ def main(*, container: tk.Misc | None = None) -> None:
         "yes",
         "on",
     )
+    prev_ref_default = (cfg.get("prev_image_reference") or "1").strip() in (
+        "1",
+        "true",
+        "True",
+        "yes",
+        "on",
+    )
     session_start_default = cfg.get("limit_session_start") or ""
     shutdown_default = _load_shutdown_after_complete(cfg)
     manual_default = cfg.get("manual_secs") or ""
+    single_sec_default = cfg.get("single_sec") or ""
+    single_prompt_default = cfg.get("single_prompt") or ""
     scene_cache = cfg.get("scene_script") or ""
+    try:
+        preview_scale_default = max(
+            160, min(960, int(cfg.get("preview_image_scale") or "420"))
+        )
+    except ValueError:
+        preview_scale_default = 420
 
     if not srt_default:
         found = find_default_srt(root_default)
@@ -279,11 +398,19 @@ def main(*, container: tk.Misc | None = None) -> None:
     url_var = tk.StringVar(value=url_default)
     srt_var = tk.StringVar(value=srt_default)
     prompt_var = tk.StringVar(value=prompt_default)
-    hourly_retry_var = tk.BooleanVar(value=hourly_retry_default)
+    hourly_retry_var = tk.BooleanVar(
+        value=False if script_preview else hourly_retry_default
+    )
+    prev_ref_var = tk.BooleanVar(value=prev_ref_default)
     session_start_var = tk.StringVar(value=session_start_default)
     limit_reset_var = tk.StringVar(value="정상화 예상: —")
-    shutdown_var = tk.BooleanVar(value=shutdown_default)
+    shutdown_var = tk.BooleanVar(
+        value=False if script_preview else shutdown_default
+    )
+    btn_cancel_wait: ttk.Button | None = None
     manual_var = tk.StringVar(value=manual_default)
+    single_sec_var = tk.StringVar(value=single_sec_default)
+    single_ref_var = tk.StringVar(value="참조: —")
     email_var = tk.StringVar(value=cred_email)
     pw_var = tk.StringVar(value=cred_pw)
     _sync_credentials_to_fields()
@@ -296,6 +423,7 @@ def main(*, container: tk.Misc | None = None) -> None:
     scene_var = tk.StringVar(value="")
     busy = {"v": False}
     wait_cancel = {"v": False}
+    gen_cancel = threading.Event()
     waiting_limit = {"v": False}
     browser_ready = {"v": False}
     # 브라우저 열기로 입력창에 SRT·프롬프트+명령이 준비됨(미전송)
@@ -303,11 +431,87 @@ def main(*, container: tk.Misc | None = None) -> None:
     scenes: list[SceneLine] = []
     collected: list[tuple[int | None, str]] = []
     scene_text_cache = {"v": scene_cache}
+    single_prompt_box: dict[str, tk.Text | None] = {"w": None}
+    scene_tree: ttk.Treeview | None = None
+    scene_list: tk.Listbox | None = None
+    preview_image_lbl: tk.Label | None = None
+    preview_scale: ttk.Scale | None = None
+    preview_img_wrap: tk.Frame | None = None
+    tree_cue_tooltip: dict[str, object] = {"win": None, "iid": None, "after": None}
+    preview_thumb_refs: list[object] = []
+    preview_photo_cache: dict[str, object] = {}
+    preview_png_path: dict[str, Path | None] = {"v": None}
+    preview_load_token: dict[str, int] = {"n": 0}
+
+    def _read_single_prompt() -> str:
+        w = single_prompt_box["w"]
+        if w is not None:
+            try:
+                return w.get("1.0", tk.END).strip()
+            except tk.TclError:
+                pass
+        return single_prompt_default
+
+    def _set_single_prompt(text: str) -> None:
+        w = single_prompt_box["w"]
+        if w is None:
+            return
+        try:
+            w.delete("1.0", tk.END)
+            if text:
+                w.insert("1.0", text)
+        except tk.TclError:
+            pass
+
+    def _script_scene_secs() -> list[int] | None:
+        if not script_preview:
+            return None
+        return [int(sc.sec) for sc in scenes]
+
+    def update_single_ref_hint(*_a: object) -> None:
+        sec = _parse_single_sec(single_sec_var.get())
+        if sec is None:
+            single_ref_var.set("참조: —")
+            return
+        scene_sec_list = _script_scene_secs()
+        slot = previous_reference_slot_sec(
+            sec,
+            interval_sec=_SCENE_INTERVAL_SEC,
+            scene_secs=scene_sec_list,
+        )
+        if slot is None:
+            single_ref_var.set("참조: 없음")
+            return
+        png_dir = Path(png_var.get().strip() or ".")
+        ref_path = find_previous_reference_png(
+            png_dir,
+            sec,
+            interval_sec=_SCENE_INTERVAL_SEC,
+            scene_secs=scene_sec_list,
+        )
+        if ref_path is not None:
+            single_ref_var.set(f"참조: {ref_path.stem} · 있음")
+            return
+        tail = " (직전 씬)" if script_preview else f" (t-{_SCENE_INTERVAL_SEC})"
+        single_ref_var.set(f"참조: {srt_png_name(slot)}{tail} · 없음")
 
     frm = ttk.Frame(root, padding=10)
     frm.pack(fill=tk.BOTH, expand=True)
     frm.grid_columnconfigure(0, weight=1)
     frm.grid_rowconfigure(3, weight=1)
+
+    def _selected_scene_index() -> int:
+        if script_preview:
+            sel = scene_tree.selection()
+            if not sel:
+                return 0
+            try:
+                return max(0, int(sel[0]))
+            except ValueError:
+                return 0
+        if scene_list.curselection():
+            return max(0, int(scene_list.curselection()[0]))
+        return 0
 
     def persist() -> None:
         nonlocal cred_email, cred_pw
@@ -318,13 +522,19 @@ def main(*, container: tk.Misc | None = None) -> None:
             srt_path=srt_var.get().strip(),
             prompt_path=prompt_var.get().strip(),
             hourly_limit_retry="1" if hourly_retry_var.get() else "0",
+            prev_image_reference="1" if prev_ref_var.get() else "0",
             limit_session_start=session_start_var.get().strip(),
             shutdown_after_hours="0",
             shutdown_after_complete="1" if shutdown_var.get() else "0",
             manual_secs=manual_var.get().strip(),
+            single_sec=single_sec_var.get().strip(),
+            single_prompt=_read_single_prompt(),
             scene_script=scene_text_cache["v"],
-            scene_index=str(
-                max(0, scene_list.curselection()[0]) if scene_list.curselection() else 0
+            scene_index=str(_selected_scene_index()),
+            preview_image_scale=str(
+                int(preview_image_scale_var.get())
+                if script_preview
+                else preview_scale_default
             ),
         )
         email = email_var.get().strip()
@@ -341,41 +551,73 @@ def main(*, container: tk.Misc | None = None) -> None:
     def set_busy(v: bool) -> None:
         busy["v"] = v
         state = tk.DISABLED if v else tk.NORMAL
-        for b in (btn_browser, btn_manual):
+        for b in (btn_browser, btn_manual, btn_single, btn_refresh):
             try:
                 b.configure(state=state)
             except tk.TclError:
                 pass
         if not v:
             waiting_limit["v"] = False
-            try:
-                btn_cancel_wait.configure(state=tk.DISABLED)
-            except tk.TclError:
-                pass
+            if btn_cancel_wait is not None:
+                try:
+                    btn_cancel_wait.configure(state=tk.DISABLED)
+                except tk.TclError:
+                    pass
 
     def set_limit_reset_display(reset_at: datetime | None) -> None:
         limit_reset_var.set(f"정상화 예상: {format_reset_at(reset_at)}")
 
     def set_limit_waiting(on: bool) -> None:
+        if script_preview:
+            return
         waiting_limit["v"] = on
-        try:
-            btn_cancel_wait.configure(state=tk.NORMAL if on else tk.DISABLED)
-        except tk.TclError:
-            pass
+        if btn_cancel_wait is not None:
+            try:
+                btn_cancel_wait.configure(state=tk.NORMAL if on else tk.DISABLED)
+            except tk.TclError:
+                pass
 
     def cancel_limit_wait() -> None:
         if not waiting_limit["v"]:
             return
         wait_cancel["v"] = True
+        gen_cancel.set()
         set_status("한도 대기 취소 요청…")
 
+    def cancel_generation(*, reason: str = "사용자 종료") -> None:
+        """창 종료·한도 대기 취소 시 이미지 생성·Playwright 세션 중단."""
+        if not (busy["v"] or waiting_limit["v"] or gen_cancel.is_set()):
+            return
+        gen_cancel.set()
+        wait_cancel["v"] = True
+        browser_ready["v"] = False
+        input_prepared["v"] = False
+        input_prepared["cmd_sec"] = None
+        try:
+            reset_image_session()
+        except Exception:
+            pass
+        try:
+            close_chrome_debug()
+        except Exception:
+            pass
+        if busy["v"] or waiting_limit["v"]:
+            set_status(f"생성 종료 요청 — {reason}")
+
     def profile_dir() -> Path:
+        module_name = (
+            "2_7_sceneImageScript" if script_preview else "2_5_sceneImage"
+        )
         base = Path(__file__).resolve().parents[1] / "dist"
+        if script_preview:
+            alt = Path(__file__).resolve().parents[2] / module_name / "dist"
+            if alt.is_dir() or not base.is_dir():
+                base = alt
         if not standalone:
             try:
                 from wisdom_root import resolve_wisdom_root
 
-                base = resolve_wisdom_root() / "2_5_sceneImage" / "dist"
+                base = resolve_wisdom_root() / module_name / "dist"
             except Exception:
                 pass
         base.mkdir(parents=True, exist_ok=True)
@@ -384,7 +626,8 @@ def main(*, container: tk.Misc | None = None) -> None:
     def append_collected_path(sec: int, path: str) -> None:
         label = f"SRT_{sec:03d}"
         short = path if len(path) < 90 else path[:87] + "…"
-        link_list.insert(tk.END, f"{label}  |  {short}")
+        if link_list is not None:
+            link_list.insert(tk.END, f"{label}  |  {short}")
         collected.append((sec, path))
 
     def apply_root(*, force: bool = True) -> None:
@@ -481,6 +724,7 @@ def main(*, container: tk.Misc | None = None) -> None:
         )
         if p:
             srt_var.set(p)
+            reload_scenes()
             persist()
 
     def pick_prompt() -> None:
@@ -552,33 +796,54 @@ def main(*, container: tk.Misc | None = None) -> None:
 
     ttk.Checkbutton(
         path_fr,
-        text="한도 시 재설정까지 대기",
-        variable=hourly_retry_var,
+        text="직전 이미지 참조 첨부",
+        variable=prev_ref_var,
         command=persist,
     ).grid(row=4, column=1, columnspan=2, sticky="w", padx=(4, 0), pady=2)
 
-    limit_row = ttk.Frame(path_fr)
-    limit_row.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 2))
-    ttk.Label(limit_row, textvariable=limit_reset_var, width=28).pack(side=tk.LEFT)
-    ttk.Label(limit_row, text="실행 시작(미표시 시)", foreground="#555").pack(
-        side=tk.LEFT, padx=(12, 4)
-    )
-    session_start_ent = ttk.Entry(limit_row, textvariable=session_start_var, width=8)
-    session_start_ent.pack(side=tk.LEFT)
-    ttk.Label(limit_row, text="예: 14:30", foreground="#888").pack(side=tk.LEFT, padx=(4, 0))
-    session_start_var.trace_add("write", lambda *_a: persist())
+    _url_row = 5 if script_preview else 7
+    if not script_preview:
+        ttk.Checkbutton(
+            path_fr,
+            text="한도 시 재설정까지 대기",
+            variable=hourly_retry_var,
+            command=persist,
+        ).grid(row=5, column=1, columnspan=2, sticky="w", padx=(4, 0), pady=2)
 
-    ttk.Label(path_fr, text="브라우저 주소", width=14).grid(row=6, column=0, sticky="w")
+        limit_row = ttk.Frame(path_fr)
+        limit_row.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 2))
+        ttk.Label(limit_row, textvariable=limit_reset_var, width=28).pack(
+            side=tk.LEFT
+        )
+        ttk.Label(limit_row, text="실행 시작(미표시 시)", foreground="#555").pack(
+            side=tk.LEFT, padx=(12, 4)
+        )
+        session_start_ent = ttk.Entry(
+            limit_row, textvariable=session_start_var, width=8
+        )
+        session_start_ent.pack(side=tk.LEFT)
+        ttk.Label(limit_row, text="예: 14:30", foreground="#888").pack(
+            side=tk.LEFT, padx=(4, 0)
+        )
+        session_start_var.trace_add("write", lambda *_a: persist())
+
+    ttk.Label(path_fr, text="브라우저 주소", width=14).grid(
+        row=_url_row, column=0, sticky="w"
+    )
     url_ent = ttk.Entry(path_fr, textvariable=url_var)
-    url_ent.grid(row=6, column=1, columnspan=2, sticky="ew", padx=(4, 0), pady=2)
+    url_ent.grid(row=_url_row, column=1, columnspan=2, sticky="ew", padx=(4, 0), pady=2)
 
-    ttk.Label(path_fr, text="Chrome 계정", width=14).grid(row=7, column=0, sticky="w")
-    ttk.Entry(path_fr, textvariable=email_var).grid(
-        row=7, column=1, columnspan=2, sticky="ew", padx=(4, 0), pady=2
+    ttk.Label(path_fr, text="Chrome 계정", width=14).grid(
+        row=_url_row + 1, column=0, sticky="w"
     )
-    ttk.Label(path_fr, text="비밀번호(선택)", width=14).grid(row=8, column=0, sticky="w")
+    ttk.Entry(path_fr, textvariable=email_var).grid(
+        row=_url_row + 1, column=1, columnspan=2, sticky="ew", padx=(4, 0), pady=2
+    )
+    ttk.Label(path_fr, text="비밀번호(선택)", width=14).grid(
+        row=_url_row + 2, column=0, sticky="w"
+    )
     ttk.Entry(path_fr, textvariable=pw_var, show="*").grid(
-        row=8, column=1, columnspan=2, sticky="ew", padx=(4, 0), pady=2
+        row=_url_row + 2, column=1, columnspan=2, sticky="ew", padx=(4, 0), pady=2
     )
 
     def on_root_path_change(*_a: object) -> None:
@@ -597,6 +862,11 @@ def main(*, container: tk.Misc | None = None) -> None:
         if p:
             persist()
             touch_workspace_from_path(p)
+            if script_preview:
+                preview_photo_cache.clear()
+                sc = selected_scene()
+                if sc is not None:
+                    _show_scene_png_preview(sc, force_reload=True)
 
     png_var.trace_add("write", on_png_path_change)
     root_var.trace_add("write", on_root_path_change)
@@ -606,15 +876,107 @@ def main(*, container: tk.Misc | None = None) -> None:
     act.grid(row=1, column=0, sticky="ew", pady=(0, 6))
 
     def selected_scene() -> SceneLine | None:
-        sel = scene_list.curselection()
-        if not sel:
-            return None
-        i = int(sel[0])
+        i = _selected_scene_index()
         if 0 <= i < len(scenes):
             return scenes[i]
         return None
 
-    def reload_scenes() -> None:
+    def _next_scene_sec(current: int) -> int | None:
+        for sc in scenes:
+            if sc.sec > int(current):
+                return sc.sec
+        return None
+
+    def _scene_cue_text(sc: SceneLine) -> str:
+        return srt_dialogue_until_next_scene(
+            srt_var.get().strip() or None,
+            sc.sec,
+            _next_scene_sec(sc.sec),
+        )
+
+    def refresh_saved_png_list() -> None:
+        """png 폴더의 SRT_*.png 목록 갱신 (script 모드는 트리 PNG 열만)."""
+        if link_list is not None:
+            link_list.delete(0, tk.END)
+        collected.clear()
+        png_dir = Path(png_var.get().strip() or ".")
+        if not png_dir.is_dir():
+            return
+        found: list[tuple[int, str]] = []
+        try:
+            for p in sorted(png_dir.glob("SRT_*.png")):
+                m = re.match(r"SRT_(\d+)\.png$", p.name, re.IGNORECASE)
+                if not m:
+                    continue
+                try:
+                    if p.stat().st_size < 512:
+                        continue
+                except OSError:
+                    continue
+                found.append((int(m.group(1)), str(p.resolve())))
+        except OSError:
+            return
+        for sec, path in sorted(found, key=lambda x: x[0]):
+            append_collected_path(sec, path)
+        if script_preview and scene_tree is not None:
+            for i, sc in enumerate(scenes):
+                png_mark = "✓" if png_already_exists(png_dir, sc.sec) else "—"
+                try:
+                    vals = list(scene_tree.item(str(i), "values"))
+                    if len(vals) >= 4:
+                        vals[3] = png_mark
+                        scene_tree.item(str(i), values=vals)
+                except tk.TclError:
+                    pass
+
+    def refresh_chapter_settings() -> None:
+        """현재 장(루트)의 png·SRT·이미지프롬프트·씬·characters.json 을 디스크에서 다시 읽는다."""
+        if busy["v"]:
+            safe_messagebox(
+                root,
+                "showinfo",
+                "2_5 sceneImage",
+                "작업 중에는 새로고침할 수 없습니다.",
+            )
+            return
+        raw_root = root_var.get().strip()
+        if not raw_root:
+            safe_messagebox(
+                root,
+                "showwarning",
+                "2_5 sceneImage",
+                "루트 폴더를 먼저 지정하세요.",
+            )
+            return
+        scene_text_cache["v"] = ""
+        input_prepared["v"] = False
+        input_prepared["cmd_sec"] = None
+        browser_ready["v"] = False
+        try:
+            clear_registry_cache()
+        except Exception:
+            pass
+        try:
+            reset_image_session()
+        except Exception:
+            pass
+        try:
+            apply_root(force=True)
+        except Exception as ex:
+            safe_messagebox(root, "showerror", "2_5 sceneImage", str(ex))
+            return
+        refresh_saved_png_list()
+        update_single_ref_hint()
+        persist()
+        n_scenes = len(scenes)
+        n_saved = link_list.size() if link_list is not None else len(collected)
+        set_status(
+            f"새로고침 — 씬 {n_scenes}개 · 저장 PNG {n_saved}개 · "
+            f"srt:{Path(srt_var.get()).name if srt_var.get().strip() else '—'} · "
+            f"prompt:{Path(prompt_var.get()).name if prompt_var.get().strip() else '—'}"
+        )
+
+    def reload_scenes(*, sync_single_fields: bool = True) -> None:
         nonlocal scenes
         text = load_scene_text(
             prompt_path=prompt_var.get().strip() or None,
@@ -629,11 +991,37 @@ def main(*, container: tk.Misc | None = None) -> None:
             srt_path=srt_var.get().strip() or None,
             interval_sec=_SCENE_INTERVAL_SEC,
         )
-        scene_list.delete(0, tk.END)
         png_dir = Path(png_var.get().strip() or ".")
-        for sc in scenes:
-            mark = "✓ " if png_already_exists(png_dir, sc.sec) else ""
-            scene_list.insert(tk.END, f"{mark}{sc.list_label()}")
+        srt_path = srt_var.get().strip() or None
+        if script_preview:
+            for item in scene_tree.get_children():
+                scene_tree.delete(item)
+            for i, sc in enumerate(scenes):
+                cue = srt_dialogue_until_next_scene(
+                    srt_path,
+                    sc.sec,
+                    _next_scene_sec(sc.sec),
+                )
+                cue_disp = cue.replace("\n", " ").strip()
+                if len(cue_disp) > 120:
+                    cue_disp = cue_disp[:117] + "…"
+                png_mark = "✓" if png_already_exists(png_dir, sc.sec) else "—"
+                scene_tree.insert(
+                    "",
+                    tk.END,
+                    iid=str(i),
+                    values=(
+                        sc.label,
+                        _format_scene_time(sc.sec),
+                        cue_disp or "—",
+                        png_mark,
+                    ),
+                )
+        else:
+            scene_list.delete(0, tk.END)
+            for sc in scenes:
+                mark = "✓ " if png_already_exists(png_dir, sc.sec) else ""
+                scene_list.insert(tk.END, f"{mark}{sc.list_label()}")
         if scenes:
             idx = 0
             raw = cfg.get("scene_index", "0")
@@ -641,8 +1029,17 @@ def main(*, container: tk.Misc | None = None) -> None:
                 idx = max(0, min(len(scenes) - 1, int(raw)))
             except ValueError:
                 idx = 0
-            scene_list.selection_set(idx)
-            on_scene_select()
+            if script_preview:
+                scene_tree.selection_set(str(idx))
+                scene_tree.see(str(idx))
+            else:
+                scene_list.selection_set(idx)
+            if sync_single_fields:
+                on_scene_select()
+            elif script_preview:
+                sc = selected_scene()
+                if sc is not None:
+                    _show_scene_png_preview(sc)
             set_status(
                 f"씬 {len(scenes)}개 · {scenes[0].label}…{scenes[-1].label}"
             )
@@ -686,13 +1083,19 @@ def main(*, container: tk.Misc | None = None) -> None:
         first_scene_prompt: str | None = None,
         submit_context: bool = True,
         force_reopen: bool = False,
+        attach_reference_override: bool | None = None,
+        first_next_scene_sec: int | None = None,
+        skip_fresh_composer: bool = False,
+        open_model_light: bool = False,
     ) -> tuple[object, bool]:
         """브라우저 오픈 + 프롬프트/대본 붙여넣기 (+ 선택: 첫 명령 입력).
 
         ``force_reopen=True`` 이면 기존 ChromeDebug·세션을 종료하고 새로 연다.
+        ``open_model_light=True`` — script 개별: 탭 리셋·75k 붙여넣기 없이 로그인·모델만.
         """
         if force_reopen:
             browser_ready["v"] = False
+            clear_chrome_session_restore()
             info = open_browser_for_account(
                 url, email=email, restart_chrome=True
             )
@@ -705,6 +1108,7 @@ def main(*, container: tk.Misc | None = None) -> None:
                 f"user_data={info.get('user_data')} reused={info.get('reused')}",
             )
         elif not browser_ready["v"]:
+            clear_chrome_session_restore()
             info = open_browser_for_account(url, email=email)
             time.sleep(0.5)
             append_image_log(
@@ -717,23 +1121,59 @@ def main(*, container: tk.Misc | None = None) -> None:
             raise RuntimeError("Playwright가 필요합니다.")
 
         sess = get_image_session(profile_dir())
+        opened_light = False
+        if browser_ready["v"] and not force_reopen and not skip_fresh_composer:
+            try:
+                sess.ensure_fresh_composer(url=url)
+                append_image_log(
+                    png_dir,
+                    "AI Image 입력창 새로 열기 (매직 다시 그리기 방지)",
+                )
+            except Exception as fresh_ex:
+                append_image_log(
+                    png_dir,
+                    f"입력창 새로 열기 경고: {fresh_ex}",
+                )
         if not browser_ready["v"]:
-            safe_after(root, lambda: set_status("Genspark 페이지 연결·로그인…"))
+            opened_light = bool(open_model_light)
+            safe_after(
+                root,
+                lambda: set_status(
+                    "Genspark 연결·로그인…"
+                    if open_model_light
+                    else "Genspark 페이지 연결·로그인…"
+                ),
+            )
             result = sess.open_and_select_model(
                 url=url,
                 model_selector=model_sel,
                 email=email,
                 password=password,
                 model_texts=model_texts,
+                light=open_model_light,
             )
             logged_in = bool(isinstance(result, dict) and result.get("logged_in"))
             model_ok = bool(isinstance(result, dict) and result.get("model_auto"))
             append_image_log(
                 png_dir,
-                f"세션 준비 — login={'OK' if logged_in else '확인'} "
-                f"model={pipe.get('model')} auto={model_ok}",
+                f"세션 준비 — login={'OK' if logged_in else '실패(Chrome에서 수동 로그인 필요)'} "
+                f"model={pipe.get('model')} auto={model_ok}"
+                + (" · light" if open_model_light else ""),
             )
+            if not logged_in:
+                safe_after(
+                    root,
+                    lambda: set_status(
+                        "로그인 실패 — Chrome에서 Genspark에 직접 로그인하세요"
+                    ),
+                )
             browser_ready["v"] = True
+            if opened_light:
+                append_image_log(
+                    png_dir,
+                    "script 준비 — SRT·프롬프트 붙여넣기 생략 "
+                    "(run_scene에서 명령·참조 첨부)",
+                )
         else:
             model_ok = True
 
@@ -803,12 +1243,30 @@ def main(*, container: tk.Misc | None = None) -> None:
             time.sleep(1.0)
 
         if first_command_sec is not None:
+            prep_ref_path = None
+            want_prep_ref = (
+                attach_reference_override
+                if attach_reference_override is not None
+                else bool(prev_ref_var.get())
+            )
+            if want_prep_ref:
+                prep_ref_path = find_previous_reference_png(
+                    png_dir,
+                    first_command_sec,
+                    interval_sec=_SCENE_INTERVAL_SEC,
+                    scene_secs=_script_scene_secs(),
+                )
             cmd = build_generate_command_from_sources(
                 first_command_sec,
                 scene_prompt=first_scene_prompt,
                 srt_path=srt_path,
                 png_dir=png_dir,
                 prompt_path=prompt_path or None,
+                reference_attached=prep_ref_path is not None,
+                reference_label=(
+                    prep_ref_path.stem if prep_ref_path is not None else ""
+                ),
+                next_scene_sec=first_next_scene_sec,
             )
             # SRT·프롬프트가 들어 있는 동일 입력창 끝에 명령만 추가 (실행 안 함)
             sess.paste_text(
@@ -835,6 +1293,10 @@ def main(*, container: tk.Misc | None = None) -> None:
         open_browser_first: bool,
         title: str,
         force_reopen: bool = False,
+        force_regenerate: bool = False,
+        attach_reference_override: bool | None = None,
+        dialogue_until_next_scene: bool = False,
+        script_light_run: bool = False,
     ) -> None:
         if busy["v"] and not force_reopen:
             safe_messagebox(
@@ -863,121 +1325,122 @@ def main(*, container: tk.Misc | None = None) -> None:
         )
         model_sel = load_model_selector()
         model_texts = model_name_variants(str(pipe.get("model") or "Nano Banana Pro"))
-        do_limit_wait = bool(hourly_retry_var.get())
+        do_limit_wait = bool(hourly_retry_var.get()) and not script_preview
         gen_timeout = max(120, int(pipe.get("generate_timeout_sec") or 120))
         first_sec = int(todo[0].sec)
-        # 입력창에 컨텍스트+명령이 없으면 붙여넣기 준비 (전송은 run_scene에서)
-        need_prepare = (
-            force_reopen
-            or open_browser_first
-            or (not browser_ready["v"])
-            or (not input_prepared["v"])
-            or (input_prepared.get("cmd_sec") != first_sec)
+        if force_regenerate and not script_light_run:
+            input_prepared["v"] = False
+            input_prepared["cmd_sec"] = None
+        # script 개별: 브라우저·SRT 컨텍스트 있으면 run_scene만 (75k 재붙여넣기 생략)
+        if script_light_run and browser_ready["v"] and not force_reopen:
+            need_prepare = False
+        else:
+            need_prepare = (
+                force_reopen
+                or (force_regenerate and not script_light_run)
+                or open_browser_first
+                or (not browser_ready["v"])
+                or (not input_prepared["v"])
+                or (input_prepared.get("cmd_sec") != first_sec)
+            )
+        skip_context_paste = bool(
+            script_light_run and dialogue_until_next_scene
         )
         persist()
         wait_cancel["v"] = False
+        gen_cancel.clear()
 
         def _session_start_hm() -> tuple[int, int] | None:
             return parse_session_start_hm(session_start_var.get())
 
         def _recover_reset_at_via_browser(*, reason: str) -> datetime | None:
-            """정상화 시각 미확인 시 브라우저 종료·재오픈으로 배너에서 읽기."""
+            """정상화 시각 미확인 시 브라우저 1회 재오픈 후 배너 probe (최대 3회)."""
             max_tries = 3
+            browser_opened = False
+            sess = get_image_session(profile_dir())
             for attempt in range(1, max_tries + 1):
-                if wait_cancel["v"] or not hourly_retry_var.get():
+                if (
+                    wait_cancel["v"]
+                    or gen_cancel.is_set()
+                    or not hourly_retry_var.get()
+                ):
                     return None
                 append_image_log(
                     png_dir,
-                    f"정상화 시각 미확인 — 브라우저 재오픈으로 배너 확인 "
+                    f"정상화 시각 미확인 — 배너 확인 "
                     f"({attempt}/{max_tries}) — {reason}",
                 )
                 safe_after(
                     root,
                     lambda a=attempt: set_status(
-                        f"한도 — 정상화 시각 확인 위해 브라우저 재오픈 ({a}/{max_tries})"
+                        f"한도 — 정상화 시각 확인 ({a}/{max_tries})"
                     ),
                 )
                 try:
-                    close_chrome_debug()
-                except Exception as close_ex:
-                    append_image_log(
-                        png_dir, f"정상화 확인 전 브라우저 종료 경고: {close_ex}"
-                    )
-                browser_ready["v"] = False
-                input_prepared["v"] = False
-                input_prepared["cmd_sec"] = None
-                try:
-                    from scene_image.genspark_image import reset_image_session
+                    if attempt == 1 or not browser_opened:
+                        try:
+                            close_chrome_debug()
+                        except Exception as close_ex:
+                            append_image_log(
+                                png_dir,
+                                f"정상화 확인 전 브라우저 종료 경고: {close_ex}",
+                            )
+                        browser_ready["v"] = False
+                        input_prepared["v"] = False
+                        input_prepared["cmd_sec"] = None
+                        try:
+                            from scene_image.genspark_image import (
+                                reset_image_session,
+                            )
 
-                    reset_image_session()
-                except Exception:
-                    pass
-                time.sleep(1.0)
-                try:
-                    info = open_browser_for_account(
-                        url, email=email, restart_chrome=True
-                    )
-                    append_image_log(
-                        png_dir,
-                        f"정상화 확인용 ChromeDebug "
-                        f"port={info.get('debug_port')} attempt={attempt}",
-                    )
-                    time.sleep(0.5)
-                    sess = get_image_session(profile_dir())
-                    sess.open_and_select_model(
-                        url=url,
-                        model_selector=model_sel,
-                        email=email,
-                        password=password,
-                        model_texts=model_texts,
-                    )
-                    browser_ready["v"] = True
+                            reset_image_session()
+                        except Exception:
+                            pass
+                        time.sleep(1.0)
+                        info = open_browser_for_account(
+                            url, email=email, restart_chrome=False
+                        )
+                        append_image_log(
+                            png_dir,
+                            f"정상화 확인용 ChromeDebug "
+                            f"port={info.get('debug_port')} attempt={attempt}",
+                        )
+                        time.sleep(0.5)
+                        sess = get_image_session(profile_dir())
+                        sess.open_and_select_model(
+                            url=url,
+                            model_selector=model_sel,
+                            email=email,
+                            password=password,
+                            model_texts=model_texts,
+                        )
+                        browser_opened = True
+                        browser_ready["v"] = True
+                    else:
+                        time.sleep(2.0)
                     probed = sess.probe_limit_reset(
                         url=url, email=email, password=password
                     )
-                    raw_at = (probed or {}).get("reset_at")
                     snip = ((probed or {}).get("snippet") or "")[:200]
+                    parsed = _reset_at_from_probe(probed)
                     append_image_log(
                         png_dir,
-                        f"배너 probe reset_at={raw_at or '-'} "
+                        f"배너 probe reset_at="
+                        f"{parsed.strftime('%Y-%m-%d %H:%M') if parsed else '-'} "
                         f"is_limit={(probed or {}).get('is_limit')} "
                         f"snip={snip!r}",
                     )
-                    if raw_at:
-                        try:
-                            return datetime.strptime(str(raw_at), "%Y-%m-%dT%H:%M:%S")
-                        except ValueError:
-                            pass
-                        parsed = resolve_limit_reset_at(str(raw_at))
-                        if parsed is not None:
-                            return parsed
-                    # 스니펫만으로도 파싱 시도
-                    from scene_image.limit_detect import parse_reset_at
-
-                    snip_full = (probed or {}).get("snippet") or ""
-                    parsed2 = parse_reset_at(snip_full)
-                    if parsed2 is not None:
-                        return parsed2
+                    if parsed is not None:
+                        return parsed
                 except Exception as probe_ex:
                     append_image_log(
                         png_dir,
                         f"정상화 시각 배너 확인 실패 ({attempt}/{max_tries}): {probe_ex}",
                     )
-                finally:
-                    try:
-                        close_chrome_debug()
-                    except Exception:
-                        pass
+                    browser_opened = False
                     browser_ready["v"] = False
-                    input_prepared["v"] = False
-                    input_prepared["cmd_sec"] = None
-                    try:
-                        from scene_image.genspark_image import reset_image_session
-
-                        reset_image_session()
-                    except Exception:
-                        pass
-                time.sleep(2.0)
+            if browser_opened:
+                browser_ready["v"] = True
             return None
 
         def _wait_until_reset(*, reset_at: datetime, reason: str) -> bool:
@@ -995,7 +1458,11 @@ def main(*, container: tk.Misc | None = None) -> None:
             safe_after(root, lambda: set_limit_waiting(True))
             elapsed = 0
             while elapsed < wait_sec:
-                if wait_cancel["v"] or not hourly_retry_var.get():
+                if (
+                    wait_cancel["v"]
+                    or gen_cancel.is_set()
+                    or not hourly_retry_var.get()
+                ):
                     safe_after(root, lambda: set_limit_waiting(False))
                     append_image_log(png_dir, "한도 대기 취소됨")
                     return False
@@ -1017,11 +1484,36 @@ def main(*, container: tk.Misc | None = None) -> None:
             )
             return True
 
-        def _wait_for_limit(reason: str, err: BaseException | str) -> bool:
+        def _resolve_reset_at(
+            err: BaseException | str,
+            *,
+            page_snip: str = "",
+            pre_reset: datetime | None = None,
+        ) -> datetime | None:
+            if pre_reset is not None:
+                return pre_reset
+            session_hm = _session_start_hm()
+            combined: BaseException | str = err
+            if page_snip:
+                if isinstance(err, BaseException):
+                    combined = f"{err}\n{page_snip}"
+                else:
+                    combined = f"{err}\n{page_snip}"
+            return resolve_limit_reset_at(
+                combined, session_start_hm=session_hm
+            )
+
+        def _wait_for_limit(
+            reason: str,
+            err: BaseException | str,
+            *,
+            page_snip: str = "",
+            pre_reset: datetime | None = None,
+        ) -> bool:
             """재설정 시각까지 대기. 배너 시각이 없으면 브라우저 재오픈으로 확인."""
             session_hm = _session_start_hm()
-            reset_at = resolve_limit_reset_at(
-                err, session_start_hm=session_hm
+            reset_at = _resolve_reset_at(
+                err, page_snip=page_snip, pre_reset=pre_reset
             )
             if reset_at is None:
                 reset_at = _recover_reset_at_via_browser(reason=reason)
@@ -1055,8 +1547,21 @@ def main(*, container: tk.Misc | None = None) -> None:
                 append_image_log(
                     png_dir,
                     f"탭로그 ON — {title} · 씬 {len(todo)}개 · reopen={force_reopen}"
+                    + (" · light" if script_light_run and not need_prepare else "")
+                    + (
+                        " · script-prep(로그인만)"
+                        if skip_context_paste and need_prepare
+                        else ""
+                    )
                     + (f" · 한도대기ON" if do_limit_wait else ""),
                 )
+                first_next = (
+                    _next_scene_sec(first_sec)
+                    if dialogue_until_next_scene
+                    else None
+                )
+                # 개별·강제 재생성: SRT·프롬프트만 붙이고 명령·참조는 run_scene에서
+                prep_command = need_prepare and not force_regenerate
                 sess, model_ok = _ensure_browser_and_paste(
                     email=email,
                     password=password,
@@ -1065,14 +1570,22 @@ def main(*, container: tk.Misc | None = None) -> None:
                     model_texts=model_texts,
                     pipe=pipe,
                     png_dir=png_dir,
-                    force_paste=need_prepare,
-                    first_command_sec=first_sec if need_prepare else None,
+                    force_paste=need_prepare and not skip_context_paste,
+                    first_command_sec=first_sec if prep_command else None,
                     first_scene_prompt=(
-                        todo[0].prompt if need_prepare and todo else None
+                        todo[0].prompt if prep_command and todo else None
                     ),
                     # 컨텍스트+명령은 입력만 — 전송은 아래 run_scene(첫 씬)
                     submit_context=False,
                     force_reopen=force_reopen,
+                    attach_reference_override=attach_reference_override,
+                    first_next_scene_sec=first_next if prep_command else None,
+                    skip_fresh_composer=bool(
+                        script_light_run and not need_prepare
+                    ),
+                    open_model_light=bool(
+                        skip_context_paste and need_prepare
+                    ),
                 )
                 saved_n = 0
                 skipped_n = 0
@@ -1080,12 +1593,23 @@ def main(*, container: tk.Misc | None = None) -> None:
                 failed_n = 0
                 fail_streak = 0
                 cancelled_wait = False
+                user_cancelled = False
+                browser_aborted = False
                 remaining = list(todo)
                 total_n = len(todo)
+                done_secs: list[int] = []
 
                 while remaining:
+                    if gen_cancel.is_set():
+                        user_cancelled = True
+                        append_image_log(
+                            png_dir,
+                            f"생성 중단 — 남은 씬 {len(remaining)}개 "
+                            f"(창 종료·취소)",
+                        )
+                        break
                     sc = remaining[0]
-                    if png_already_exists(png_dir, sc.sec):
+                    if not force_regenerate and png_already_exists(png_dir, sc.sec):
                         skipped_n += 1
                         path = str(scene_png_path(png_dir, sc.sec))
                         append_image_log(
@@ -1096,8 +1620,14 @@ def main(*, container: tk.Misc | None = None) -> None:
                             append_collected_path(s.sec, p)
 
                         safe_after(root, _skip)
+                        done_secs.append(int(sc.sec))
                         remaining.pop(0)
                         continue
+                    sc_next = (
+                        _next_scene_sec(sc.sec)
+                        if dialogue_until_next_scene
+                        else None
+                    )
                     cmd = build_generate_command_from_sources(
                         sc.sec,
                         scene_prompt=sc.prompt,
@@ -1105,10 +1635,12 @@ def main(*, container: tk.Misc | None = None) -> None:
                         interval_sec=_SCENE_INTERVAL_SEC,
                         png_dir=png_dir,
                         prompt_path=prompt_var.get().strip() or None,
+                        next_scene_sec=sc_next,
                     )
                     # 첫 실행·한도 재오픈 후: 입력창에 준비된 명령이 이 씬이면 그대로 전송
                     use_box = (
-                        bool(input_prepared["v"])
+                        not force_regenerate
+                        and bool(input_prepared["v"])
                         and input_prepared.get("cmd_sec") == int(sc.sec)
                     )
                     done_i = total_n - len(remaining) + 1
@@ -1120,6 +1652,11 @@ def main(*, container: tk.Misc | None = None) -> None:
                             + c[:80]
                             + ("…" if len(c) > 80 else "")
                         ),
+                    )
+                    attach_ref = (
+                        attach_reference_override
+                        if attach_reference_override is not None
+                        else bool(prev_ref_var.get())
                     )
                     try:
                         out = sess.run_scene_with_retry(
@@ -1137,6 +1674,13 @@ def main(*, container: tk.Misc | None = None) -> None:
                             srt_path=srt_var.get().strip() or None,
                             interval_sec=_SCENE_INTERVAL_SEC,
                             prompt_path=prompt_var.get().strip() or None,
+                            attach_reference=attach_ref,
+                            prior_secs=list(done_secs),
+                            email=email,
+                            password=password,
+                            force_regenerate=force_regenerate,
+                            next_scene_sec=sc_next,
+                            scene_secs=_script_scene_secs(),
                         )
                     except Exception as scene_err:
                         failed_n += 1
@@ -1146,15 +1690,39 @@ def main(*, container: tk.Misc | None = None) -> None:
                             input_prepared["cmd_sec"] = None
                         ran_n += 1
                         err_s = str(scene_err)
+                        if is_browser_closed_error(scene_err):
+                            browser_aborted = True
+                            browser_ready["v"] = False
+                            input_prepared["v"] = False
+                            input_prepared["cmd_sec"] = None
+                            append_fail_log(
+                                png_dir,
+                                scene=sc.label,
+                                error=err_s,
+                                kind="browser_closed",
+                                extra="생성 즉시 중단",
+                            )
+                            append_image_log(
+                                png_dir,
+                                f"브라우저 종료 — {sc.label}에서 생성 중단 "
+                                f"(남은 씬 {len(remaining)}개 스킵)\n{err_s}",
+                            )
+                            safe_after(
+                                root,
+                                lambda s=sc: set_status(
+                                    f"브라우저 종료 — {s.label}에서 중단"
+                                ),
+                            )
+                            break
                         is_limit = isinstance(scene_err, AiImageLimitError) or (
                             _looks_like_limit_error(err_s)
                         )
-                        limit_hit = is_limit or (fail_streak >= _LIMIT_FAIL_STREAK)
+                        limit_hit = is_limit
                         # 실패 분석 로그
-                        kind = "limit" if is_limit else (
-                            "fail_streak" if limit_hit else "fail"
-                        )
+                        kind = "limit" if is_limit else "fail"
                         extra = f"streak={fail_streak}"
+                        if fail_streak >= _LIMIT_FAIL_STREAK and not is_limit:
+                            extra += " (한도 아님 — Chrome 유지)"
                         if isinstance(scene_err, AiImageLimitError):
                             if scene_err.reset_at:
                                 extra += (
@@ -1173,10 +1741,51 @@ def main(*, container: tk.Misc | None = None) -> None:
                             extra=extra,
                         )
                         if do_limit_wait and limit_hit and hourly_retry_var.get():
-                            if isinstance(scene_err, AiImageLimitError) and scene_err.reset_at:
+                            known_reset = _resolve_reset_at(
+                                scene_err,
+                                page_snip=page_snip or err_s,
+                                pre_reset=(
+                                    scene_err.reset_at
+                                    if isinstance(
+                                        scene_err, AiImageLimitError
+                                    )
+                                    and scene_err.reset_at
+                                    else None
+                                ),
+                            )
+                            if known_reset is None:
+                                append_image_log(
+                                    png_dir,
+                                    f"{sc.label} 한도 — 정상화 시각 미확인, "
+                                    "브라우저 종료 전 배너 probe",
+                                )
+                                try:
+                                    probed = sess.probe_limit_reset(
+                                        url=url,
+                                        email=email,
+                                        password=password,
+                                    )
+                                    known_reset = _reset_at_from_probe(probed)
+                                    snip = (
+                                        (probed or {}).get("snippet") or ""
+                                    )[:200]
+                                    append_image_log(
+                                        png_dir,
+                                        f"한도 probe(종료 전) "
+                                        f"reset_at="
+                                        f"{known_reset.strftime('%Y-%m-%d %H:%M') if known_reset else '-'} "
+                                        f"is_limit={(probed or {}).get('is_limit')} "
+                                        f"snip={snip!r}",
+                                    )
+                                except Exception as probe_ex:
+                                    append_image_log(
+                                        png_dir,
+                                        f"한도 probe(종료 전) 실패: {probe_ex}",
+                                    )
+                            if known_reset is not None:
                                 safe_after(
                                     root,
-                                    lambda ra=scene_err.reset_at: set_limit_reset_display(
+                                    lambda ra=known_reset: set_limit_reset_display(
                                         ra
                                     ),
                                 )
@@ -1189,8 +1798,13 @@ def main(*, container: tk.Misc | None = None) -> None:
                             )
                             safe_after(
                                 root,
-                                lambda s=sc, e=err_s: set_status(
-                                    f"{s.label} 한도 — 브라우저 종료·대기 — {e[:50]}"
+                                lambda s=sc, e=err_s, lbl=(
+                                    format_reset_at(known_reset)
+                                    if known_reset
+                                    else "—"
+                                ): set_status(
+                                    f"{s.label} 한도 — 정상화 예상 {lbl} — "
+                                    f"브라우저 종료·대기 — {e[:40]}"
                                 ),
                             )
                             # 한도 대기 전: 이미지용 브라우저·세션 종료
@@ -1206,7 +1820,12 @@ def main(*, container: tk.Misc | None = None) -> None:
                             browser_ready["v"] = False
                             input_prepared["v"] = False
                             input_prepared["cmd_sec"] = None
-                            if not _wait_for_limit(f"{sc.label} 한도", scene_err):
+                            if not _wait_for_limit(
+                                f"{sc.label} 한도",
+                                scene_err,
+                                page_snip=page_snip or err_s,
+                                pre_reset=known_reset,
+                            ):
                                 cancelled_wait = True
                                 break
                             # 재개: 「실행」와 동일 — 재오픈·로그인·붙여넣기·이 씬 명령
@@ -1270,12 +1889,19 @@ def main(*, container: tk.Misc | None = None) -> None:
                     ran_n += 1
                     fail_streak = 0
                     remaining.pop(0)
+                    done_secs.append(int(sc.sec))
                     paths = list((out or {}).get("saved") or [])
                     saved_n += len(paths)
                     show_paths = paths or [str(scene_png_path(png_dir, sc.sec))]
+                    ref_note = ""
+                    if (out or {}).get("reference_attached"):
+                        ref_note = (
+                            f"\n참조 첨부: {(out or {}).get('reference_file') or 'OK'}"
+                        )
                     append_image_log(
                         png_dir,
-                        f"{sc.label} 생성·다운로드 완료\n" + "\n".join(show_paths),
+                        f"{sc.label} 생성·다운로드 완료{ref_note}\n"
+                        + "\n".join(show_paths),
                     )
 
                     def _done_paths(s=sc, ps=list(show_paths)) -> None:
@@ -1287,7 +1913,7 @@ def main(*, container: tk.Misc | None = None) -> None:
                 # 마지막 씬까지 끝난 뒤: 늦은 이미지 회수 + PNG 존재로 실패 최종 확인
                 fail_labels: list[str] = []
                 recovered_n = 0
-                if not cancelled_wait:
+                if not cancelled_wait and not browser_aborted and not user_cancelled:
                     missing_secs = [
                         int(sc.sec)
                         for sc in todo
@@ -1363,8 +1989,12 @@ def main(*, container: tk.Misc | None = None) -> None:
                 def done() -> None:
                     set_busy(False)
                     reload_scenes()
-                    left_n = len(remaining) if cancelled_wait else 0
-                    will_shutdown = bool(shutdown_var.get())
+                    left_n = (
+                        len(remaining)
+                        if (cancelled_wait or browser_aborted or user_cancelled)
+                        else 0
+                    )
+                    will_shutdown = bool(shutdown_var.get()) and not script_preview
                     shutdown_note = ""
                     if will_shutdown:
                         delay_sec = _SHUTDOWN_DELAY_SEC
@@ -1394,9 +2024,18 @@ def main(*, container: tk.Misc | None = None) -> None:
                     recover_note = (
                         f" · 회수 {recovered_n}" if recovered_n else ""
                     )
+                    abort_prefix = (
+                        "브라우저 종료 — "
+                        if browser_aborted
+                        else (
+                            "생성 중단 — "
+                            if user_cancelled
+                            else ("대기 취소 — " if cancelled_wait else "완료 — ")
+                        )
+                    )
                     set_status(
                         f"{title} "
-                        + ("대기 취소 — " if cancelled_wait else "완료 — ")
+                        + abort_prefix
                         + f"저장 {saved_n} · 건너뜀 {skipped_n}"
                         + (f" · 실패 {failed_n}" if failed_n else "")
                         + recover_note
@@ -1409,7 +2048,15 @@ def main(*, container: tk.Misc | None = None) -> None:
                         + f" → {png_dir}"
                     )
                     msg = (
-                        ("한도 대기 취소\n" if cancelled_wait else "")
+                        (
+                            "브라우저 종료 — 생성 중단\n"
+                            if browser_aborted
+                            else (
+                                "생성 중단\n"
+                                if user_cancelled
+                                else ("한도 대기 취소\n" if cancelled_wait else "")
+                            )
+                        )
                         + f"저장 {saved_n}개 · 건너뜀 {skipped_n}개"
                         + (f" · 실패 {failed_n}개" if failed_n else "")
                         + (f" · 회수 {recovered_n}개" if recovered_n else "")
@@ -1426,6 +2073,21 @@ def main(*, container: tk.Misc | None = None) -> None:
 
                 safe_after(root, done)
             except Exception as e:
+                if gen_cancel.is_set() or is_browser_closed_error(e):
+                    try:
+                        append_image_log(
+                            png_dir,
+                            f"{title} 중단 — 창 종료·취소",
+                        )
+                    except Exception:
+                        pass
+
+                    def cancelled() -> None:
+                        set_busy(False)
+                        set_status("생성 중단 — 창 종료")
+
+                    safe_after(root, cancelled)
+                    return
                 err = str(e)
                 try:
                     append_image_log(png_dir, f"{title} 오류: {err}")
@@ -1435,7 +2097,7 @@ def main(*, container: tk.Misc | None = None) -> None:
                 def fail() -> None:
                     set_busy(False)
                     set_status(f"오류: {err}")
-                    safe_messagebox(root, "showerror", "2_5 sceneImage", err)
+                    safe_messagebox(root, "showerror", app_label, err)
 
                 safe_after(root, fail)
 
@@ -1451,9 +2113,9 @@ def main(*, container: tk.Misc | None = None) -> None:
         """다른 장(루트)용 sceneImage 창을 병렬 실행."""
         try:
             before = count_claimable_slots()
-            _spawn_scene_image_instance()
+            _spawn_scene_image_instance(script_preview=script_preview)
         except Exception as e:
-            safe_messagebox(root, "showerror", "2_5 sceneImage", str(e))
+            safe_messagebox(root, "showerror", app_label, str(e))
             return
         slot = get_active_slot()
         slot_lbl = slot.label if slot else "?"
@@ -1556,21 +2218,133 @@ def main(*, container: tk.Misc | None = None) -> None:
         persist()
         _run_scenes(todo, open_browser_first=False, title="수동 생성")
 
+    def single_generate() -> None:
+        if busy["v"]:
+            return
+        sec = _parse_single_sec(single_sec_var.get())
+        if sec is None:
+            sc_sel = selected_scene()
+            if sc_sel is not None:
+                sec = int(sc_sel.sec)
+        if sec is None:
+            safe_messagebox(
+                root,
+                "showwarning",
+                app_label,
+                "이미지 번호를 입력하세요.\n"
+                "예: 120 · SRT_120 · 또는 왼쪽 목록에서 SRT# 선택",
+            )
+            return
+        single_sec_var.set(str(sec))
+        prompt = _read_single_prompt()
+        by_sec = {sc.sec: sc for sc in scenes}
+        found = by_sec.get(sec)
+        script_only = False
+        if script_preview and not is_real_scene_prompt(prompt):
+            if found and is_real_scene_prompt(found.prompt):
+                prompt = found.prompt.strip()
+                _set_single_prompt(prompt)
+            else:
+                script_only = True
+                prompt = (found.prompt.strip() if found and found.prompt.strip() else "")
+        elif not prompt:
+            if found and found.prompt.strip():
+                prompt = found.prompt.strip()
+                _set_single_prompt(prompt)
+            else:
+                safe_messagebox(
+                    root,
+                    "showwarning",
+                    app_label,
+                    "생성할 내용을 입력하세요.\n"
+                    "씬 목록에서 선택하면 프롬프트가 채워집니다.",
+                )
+                return
+        if script_only:
+            scene_sec_list = _script_scene_secs()
+            slot = previous_reference_slot_sec(
+                sec,
+                interval_sec=_SCENE_INTERVAL_SEC,
+                scene_secs=scene_sec_list,
+            )
+            png_dir = Path(png_var.get().strip() or ".")
+            ref_path = find_previous_reference_png(
+                png_dir,
+                sec,
+                interval_sec=_SCENE_INTERVAL_SEC,
+                scene_secs=scene_sec_list,
+            )
+            if slot is None:
+                safe_messagebox(
+                    root,
+                    "showwarning",
+                    app_label,
+                    f"SRT_{sec:03d} — 직전 참조 씬이 없습니다.",
+                )
+                return
+            if ref_path is None:
+                safe_messagebox(
+                    root,
+                    "showwarning",
+                    app_label,
+                    f"SRT_{sec:03d} — 직전 씬 이미지({srt_png_name(slot)} 등)가 없습니다.\n"
+                    "먼저 직전 구간 이미지를 생성하세요.",
+                )
+                return
+        persist()
+        update_single_ref_hint()
+        ref_note = single_ref_var.get()
+        use_ref = True if script_only else bool(prev_ref_var.get())
+        append_image_log(
+            Path(png_var.get().strip() or "."),
+            f"개별 생성 요청 SRT_{sec:03d} · "
+            f"ref={'ON' if use_ref else 'OFF'}"
+            + (" · 대본구간" if script_only else "")
+            + (
+                " · 브라우저 준비됨(명령만)"
+                if script_preview and browser_ready["v"]
+                else (
+                    " · 브라우저 최초 준비(로그인 — Chrome에서 Google 확인)"
+                    if script_preview
+                    else ""
+                )
+            )
+            + f" · {ref_note}",
+        )
+        sc = SceneLine(sec=int(sec), prompt=prompt)
+        _run_scenes(
+            [sc],
+            open_browser_first=not browser_ready["v"],
+            title="개별 생성",
+            force_regenerate=True,
+            force_reopen=False,
+            attach_reference_override=True if script_only else None,
+            dialogue_until_next_scene=script_only,
+            script_light_run=script_preview,
+        )
+
     btn_browser = ttk.Button(act, text="실행", command=open_browser)
     btn_browser.pack(side=tk.LEFT, padx=(0, 6))
-    ttk.Button(act, text="인스턴스추가", command=add_instance).pack(
-        side=tk.LEFT, padx=(0, 6)
-    )
-    btn_cancel_wait = ttk.Button(
-        act, text="대기 취소", width=10, command=cancel_limit_wait, state=tk.DISABLED
-    )
-    btn_cancel_wait.pack(side=tk.LEFT, padx=(0, 6))
-    ttk.Checkbutton(
-        act,
-        text="완료후 PC종료",
-        variable=shutdown_var,
-        command=persist,
-    ).pack(side=tk.LEFT, padx=(8, 0))
+    btn_refresh = ttk.Button(act, text="새로고침", width=8, command=refresh_chapter_settings)
+    btn_refresh.pack(side=tk.LEFT, padx=(0, 6))
+    if not script_preview:
+        ttk.Button(act, text="인스턴스추가", command=add_instance).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        btn_cancel_wait = ttk.Button(
+            act,
+            text="대기 취소",
+            width=10,
+            command=cancel_limit_wait,
+            state=tk.DISABLED,
+        )
+        btn_cancel_wait.pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Checkbutton(
+            act,
+            text="완료후 PC종료",
+            variable=shutdown_var,
+            command=persist,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
     ttk.Label(frm, textvariable=scene_var).grid(row=2, column=0, sticky="w", pady=(0, 4))
 
@@ -1581,8 +2355,12 @@ def main(*, container: tk.Misc | None = None) -> None:
     manual_fr = ttk.LabelFrame(
         paned, text="이미지 구간 생성 (10,20 / 220~500 / 720~ …)", padding=4
     )
+    single_fr = ttk.LabelFrame(
+        paned, text="개별 이미지 생성 (번호 + 내용)", padding=4
+    )
     lists_fr = ttk.Frame(paned)
     paned.add(manual_fr, weight=1)
+    paned.add(single_fr, weight=2)
     paned.add(lists_fr, weight=3)
 
     manual_fr.grid_columnconfigure(0, weight=1)
@@ -1596,54 +2374,449 @@ def main(*, container: tk.Misc | None = None) -> None:
     btn_manual = ttk.Button(manual_fr, text="선택 생성", width=10, command=manual_generate)
     btn_manual.grid(row=1, column=1, sticky="e")
 
+    single_fr.grid_columnconfigure(1, weight=1)
+    single_fr.grid_rowconfigure(2, weight=1)
+    ttk.Label(single_fr, text="번호(초)", width=10).grid(
+        row=0, column=0, sticky="nw", pady=(0, 4)
+    )
+    single_num_row = ttk.Frame(single_fr)
+    single_num_row.grid(row=0, column=1, sticky="ew", pady=(0, 4))
+    single_num_row.grid_columnconfigure(0, weight=1)
+    single_sec_ent = ttk.Entry(single_num_row, textvariable=single_sec_var, width=10)
+    single_sec_ent.grid(row=0, column=0, sticky="w")
+    ttk.Label(single_num_row, textvariable=single_ref_var, foreground="#555").grid(
+        row=0, column=1, sticky="w", padx=(10, 0)
+    )
+    ttk.Label(
+        single_fr,
+        text=(
+            "내용 (비우면 대본 구간으로 생성)"
+            if script_preview
+            else "내용 (SCENE PROMPT — 비우면 씬 목록 프롬프트 사용)"
+        ),
+        foreground="#555",
+    ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
+    single_prompt_wrap = ttk.Frame(single_fr)
+    single_prompt_wrap.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(0, 4))
+    single_prompt_wrap.grid_columnconfigure(0, weight=1)
+    single_prompt_wrap.grid_rowconfigure(0, weight=1)
+    single_prompt_text = tk.Text(
+        single_prompt_wrap,
+        height=5,
+        wrap=tk.WORD,
+        undo=True,
+    )
+    single_prompt_sb = ttk.Scrollbar(
+        single_prompt_wrap, orient=tk.VERTICAL, command=single_prompt_text.yview
+    )
+    single_prompt_text.configure(yscrollcommand=single_prompt_sb.set)
+    single_prompt_text.grid(row=0, column=0, sticky="nsew")
+    single_prompt_sb.grid(row=0, column=1, sticky="ns")
+    single_prompt_box["w"] = single_prompt_text
+    if single_prompt_default:
+        _set_single_prompt(single_prompt_default)
+    btn_single = ttk.Button(
+        single_fr, text="개별 이미지 생성", width=16, command=single_generate
+    )
+    btn_single.grid(row=3, column=1, sticky="e", pady=(2, 0))
+    single_sec_var.trace_add("write", update_single_ref_hint)
+    png_var.trace_add("write", update_single_ref_hint)
+    prev_ref_var.trace_add("write", update_single_ref_hint)
+
     lists_fr.grid_columnconfigure(0, weight=1)
-    lists_fr.grid_columnconfigure(1, weight=1)
     lists_fr.grid_rowconfigure(0, weight=1)
 
-    left = ttk.LabelFrame(lists_fr, text="파싱된 씬", padding=4)
-    right = ttk.LabelFrame(lists_fr, text="저장된 경로", padding=4)
-    left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-    right.grid(row=0, column=1, sticky="nsew")
-    left.grid_columnconfigure(0, weight=1)
-    left.grid_rowconfigure(0, weight=1)
-    right.grid_columnconfigure(0, weight=1)
-    right.grid_rowconfigure(0, weight=1)
+    link_list: tk.Listbox | None = None
 
-    scene_list = tk.Listbox(left, activestyle="dotbox", exportselection=False)
-    scene_sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=scene_list.yview)
-    scene_list.configure(yscrollcommand=scene_sb.set)
-    scene_list.grid(row=0, column=0, sticky="nsew")
-    scene_sb.grid(row=0, column=1, sticky="ns")
+    preview_image_scale_var = tk.IntVar(value=preview_scale_default)
+    preview_scale_show_var = tk.StringVar(value=f"{preview_scale_default}px")
 
-    link_list = tk.Listbox(right, activestyle="dotbox", exportselection=False)
-    link_sb = ttk.Scrollbar(right, orient=tk.VERTICAL, command=link_list.yview)
-    link_list.configure(yscrollcommand=link_sb.set)
-    link_list.grid(row=0, column=0, sticky="nsew")
-    link_sb.grid(row=0, column=1, sticky="ns")
+    if script_preview:
+        h_paned = ttk.Panedwindow(lists_fr, orient=tk.HORIZONTAL)
+        h_paned.grid(row=0, column=0, sticky="nsew")
+        list_frm = ttk.LabelFrame(h_paned, text="씬 · 대본 · PNG", padding=4)
+        preview_frm = ttk.Frame(h_paned, padding=8)
+        h_paned.add(list_frm, weight=2)
+        h_paned.add(preview_frm, weight=4)
+        list_frm.grid_rowconfigure(0, weight=1)
+        list_frm.grid_columnconfigure(0, weight=1)
+        preview_frm.grid_columnconfigure(0, weight=1)
+        preview_frm.grid_rowconfigure(0, weight=1)
+
+        cols = ("sec", "time", "cue", "png")
+        scene_tree = ttk.Treeview(list_frm, columns=cols, show="headings", height=12)
+        scene_tree.heading("sec", text="SRT#")
+        scene_tree.heading("time", text="시간")
+        scene_tree.heading("cue", text="대본(마우스올리기)")
+        scene_tree.heading("png", text="PNG")
+        scene_tree.column("sec", width=64, anchor=tk.CENTER, stretch=False)
+        scene_tree.column("time", width=52, anchor=tk.CENTER, stretch=False)
+        scene_tree.column("cue", width=320, anchor=tk.W, stretch=True)
+        scene_tree.column("png", width=44, anchor=tk.CENTER, stretch=False)
+        tree_vsb = ttk.Scrollbar(list_frm, orient=tk.VERTICAL, command=scene_tree.yview)
+        tree_hsb = ttk.Scrollbar(list_frm, orient=tk.HORIZONTAL, command=scene_tree.xview)
+        scene_tree.configure(yscrollcommand=tree_vsb.set, xscrollcommand=tree_hsb.set)
+        scene_tree.grid(row=0, column=0, sticky="nsew")
+        tree_vsb.grid(row=0, column=1, sticky="ns")
+        tree_hsb.grid(row=1, column=0, sticky="ew")
+
+        img_frm = ttk.Frame(preview_frm)
+        img_frm.grid(row=0, column=0, sticky="nsew")
+        img_frm.grid_columnconfigure(0, weight=1)
+        img_frm.grid_rowconfigure(1, weight=1)
+
+        img_hdr = ttk.Frame(img_frm)
+        img_hdr.grid(row=0, column=0, sticky="ew")
+        img_hdr.grid_columnconfigure(1, weight=1)
+        ttk.Label(
+            img_hdr,
+            text="SRT_XXX.png — SRT# 클릭 선택 · 더블클릭 확대 · 행에 마우스=대본",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(img_hdr, textvariable=preview_scale_show_var).grid(
+            row=0, column=2, sticky="e", padx=(8, 0)
+        )
+        preview_img_wrap = tk.Frame(img_frm, bg="#e8e8e8")
+        preview_img_wrap.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
+        preview_img_wrap.grid_columnconfigure(0, weight=1)
+        preview_img_wrap.grid_rowconfigure(0, weight=1)
+        preview_image_lbl = tk.Label(
+            preview_img_wrap,
+            text="(SRT# 클릭 — 이미지 없음)",
+            anchor=tk.CENTER,
+            bg="#e8e8e8",
+        )
+        preview_image_lbl.grid(row=0, column=0, sticky="nsew")
+        scale_fr = ttk.Frame(img_frm)
+        scale_fr.grid(row=2, column=0, sticky="ew")
+        ttk.Label(scale_fr, text="이미지 크기").pack(side=tk.LEFT)
+        preview_scale = ttk.Scale(
+            scale_fr,
+            from_=160,
+            to=960,
+            orient=tk.HORIZONTAL,
+        )
+        preview_scale.set(preview_scale_default)
+        preview_scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+    else:
+        lists_fr.grid_columnconfigure(1, weight=1)
+        left = ttk.LabelFrame(lists_fr, text="파싱된 씬", padding=4)
+        right = ttk.LabelFrame(lists_fr, text="저장된 경로", padding=4)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        right.grid(row=0, column=1, sticky="nsew")
+        left.grid_columnconfigure(0, weight=1)
+        left.grid_rowconfigure(0, weight=1)
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(0, weight=1)
+
+        scene_list = tk.Listbox(left, activestyle="dotbox", exportselection=False)
+        scene_sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=scene_list.yview)
+        scene_list.configure(yscrollcommand=scene_sb.set)
+        scene_list.grid(row=0, column=0, sticky="nsew")
+        scene_sb.grid(row=0, column=1, sticky="ns")
+
+        link_list = tk.Listbox(right, activestyle="dotbox", exportselection=False)
+        link_sb = ttk.Scrollbar(right, orient=tk.VERTICAL, command=link_list.yview)
+        link_list.configure(yscrollcommand=link_sb.set)
+        link_list.grid(row=0, column=0, sticky="nsew")
+        link_sb.grid(row=0, column=1, sticky="ns")
+
+    def _scene_cue_tooltip_text(sc: SceneLine) -> str:
+        nxt = _next_scene_sec(sc.sec)
+        header = f"{sc.label} ({_format_scene_time(sc.sec)}"
+        if nxt is not None:
+            header += f" ~ {_format_scene_time(nxt)} 직전"
+        else:
+            header += " ~ 끝"
+        header += ")\n\n"
+        cue = _scene_cue_text(sc)
+        return header + (cue or "(해당 구간 대본 없음)")
+
+    def _hide_tree_cue_tooltip() -> None:
+        after_id = tree_cue_tooltip.get("after")
+        if after_id is not None:
+            try:
+                root.after_cancel(after_id)  # type: ignore[arg-type]
+            except tk.TclError:
+                pass
+            tree_cue_tooltip["after"] = None
+        win = tree_cue_tooltip.get("win")
+        if win is not None:
+            try:
+                win.destroy()  # type: ignore[union-attr]
+            except tk.TclError:
+                pass
+            tree_cue_tooltip["win"] = None
+        tree_cue_tooltip["iid"] = None
+
+    def _show_tree_cue_tooltip(iid: str, x_root: int, y_root: int) -> None:
+        _hide_tree_cue_tooltip()
+        try:
+            idx = int(iid)
+        except ValueError:
+            return
+        if idx < 0 or idx >= len(scenes):
+            return
+        text = _scene_cue_tooltip_text(scenes[idx])
+        if not text.strip():
+            return
+        win = tk.Toplevel(root)
+        win.wm_overrideredirect(True)
+        try:
+            win.wm_attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        border = tk.Frame(
+            win,
+            background="#c8c8c8",
+            borderwidth=1,
+            relief=tk.SOLID,
+        )
+        border.pack()
+        lbl = tk.Label(
+            border,
+            text=text,
+            justify=tk.LEFT,
+            background="#ffffe1",
+            foreground="#111",
+            font=(fam, max(9, sz - 1)),
+            wraplength=440,
+            padx=10,
+            pady=8,
+        )
+        lbl.pack(padx=1, pady=1)
+        tree_cue_tooltip["win"] = win
+        tree_cue_tooltip["iid"] = iid
+        win.update_idletasks()
+        sw = max(120, win.winfo_width())
+        sh = max(40, win.winfo_height())
+        sx = root.winfo_screenwidth()
+        sy = root.winfo_screenheight()
+        px = min(max(4, x_root + 14), max(4, sx - sw - 8))
+        py = min(max(4, y_root + 18), max(4, sy - sh - 8))
+        win.geometry(f"+{px}+{py}")
+
+    def _on_tree_motion(event: tk.Event) -> None:
+        if scene_tree is None:
+            return
+        if scene_tree.identify_region(event.x, event.y) != "cell":
+            _hide_tree_cue_tooltip()
+            return
+        iid = scene_tree.identify_row(event.y)
+        if not iid:
+            _hide_tree_cue_tooltip()
+            return
+        if iid == tree_cue_tooltip.get("iid") and tree_cue_tooltip.get("win"):
+            return
+        _hide_tree_cue_tooltip()
+
+        def _show_delayed() -> None:
+            tree_cue_tooltip["after"] = None
+            _show_tree_cue_tooltip(iid, event.x_root, event.y_root)
+
+        tree_cue_tooltip["after"] = root.after(280, _show_delayed)
+
+    def _preview_image_max_px() -> int:
+        """슬라이더 값 = PNG 미리보기 최대 변(가로·세로) px."""
+        try:
+            if preview_scale is not None:
+                px = int(float(preview_scale.get()))
+            else:
+                px = int(preview_image_scale_var.get())
+        except (tk.TclError, ValueError):
+            px = preview_scale_default
+        return max(160, min(960, px))
+
+    def _on_preview_scale_change(*_a: object) -> None:
+        if not script_preview:
+            return
+        px = _preview_image_max_px()
+        preview_image_scale_var.set(px)
+        preview_scale_show_var.set(f"{px}px")
+        sc = selected_scene()
+        if sc is not None:
+            _show_scene_png_preview(sc, force_reload=True)
+        persist()
+
+    if script_preview and preview_scale is not None:
+        preview_scale.configure(command=_on_preview_scale_change)
+
+    def _apply_preview_photo(photo: object) -> None:
+        if preview_image_lbl is None:
+            return
+        preview_thumb_refs.append(photo)
+        preview_image_lbl.configure(image=photo, text="", bg="#e8e8e8")
+        preview_image_lbl.image = photo
+
+    def _show_scene_png_preview(
+        sc: SceneLine | None, *, force_reload: bool = False
+    ) -> None:
+        if not script_preview or preview_image_lbl is None:
+            return
+        if sc is None:
+            preview_image_lbl.configure(
+                image="",
+                text="(SRT# 클릭)",
+                bg="#e8e8e8",
+            )
+            preview_image_lbl.image = None
+            preview_png_path["v"] = None
+            return
+        png_path = scene_png_path(Path(png_var.get().strip() or "."), sc.sec)
+        try:
+            png_resolved = png_path.resolve() if png_path.is_file() else png_path
+        except OSError:
+            png_resolved = png_path
+        if not png_resolved.is_file():
+            preview_image_lbl.configure(
+                image="",
+                text=f"{sc.png_name} — 없음",
+                bg="#e8e8e8",
+            )
+            preview_image_lbl.image = None
+            preview_png_path["v"] = None
+            return
+        max_px = _preview_image_max_px()
+        cache_key = f"{png_resolved}|{max_px}"
+        preview_png_path["v"] = png_resolved
+        if force_reload:
+            preview_photo_cache.pop(cache_key, None)
+        elif cache_key in preview_photo_cache:
+            _apply_preview_photo(preview_photo_cache[cache_key])
+            return
+
+        preview_load_token["n"] += 1
+        load_id = int(preview_load_token["n"])
+        preview_image_lbl.configure(
+            image="",
+            text="불러오는 중…",
+            bg="#e8e8e8",
+        )
+
+        def work() -> None:
+            err = ""
+            photo = None
+            try:
+                from PIL import Image, ImageTk
+
+                im = Image.open(png_resolved).convert("RGB")
+                im.thumbnail((max_px, max_px))
+                photo = ImageTk.PhotoImage(im)
+            except Exception as e:
+                err = str(e)
+                try:
+                    photo = tk.PhotoImage(file=str(png_resolved))
+                except Exception as e2:
+                    err = f"{err}; {e2}"
+
+            def ui() -> None:
+                if load_id != preview_load_token["n"]:
+                    return
+                if preview_png_path["v"] != png_resolved:
+                    return
+                if photo is None:
+                    preview_image_lbl.configure(
+                        image="",
+                        text=f"미리보기 실패\n{err[:120]}",
+                        bg="#e8e8e8",
+                    )
+                    preview_image_lbl.image = None
+                    return
+                preview_photo_cache[cache_key] = photo
+                _apply_preview_photo(photo)
+
+            safe_after(root, ui)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _open_png_viewer(path: Path) -> None:
+        try:
+            from PIL import Image, ImageTk
+
+            im = Image.open(path).convert("RGB")
+            im.thumbnail((960, 720))
+            photo = ImageTk.PhotoImage(im)
+            preview_thumb_refs.append(photo)
+        except Exception as e:
+            safe_messagebox(root, "showerror", app_label, f"이미지를 열 수 없습니다.\n{e}")
+            return
+        win = tk.Toplevel(root)
+        win.title(path.name)
+        lbl = tk.Label(win, image=photo)
+        lbl.image = photo
+        lbl.pack(padx=10, pady=10)
+        ttk.Label(win, text=str(path), foreground="#666").pack(pady=(0, 8))
 
     def on_scene_select(_event: tk.Event | None = None) -> None:
         sc = selected_scene()
         if sc is None:
             scene_var.set("")
+            _show_scene_png_preview(None)
             return
         exists = png_already_exists(Path(png_var.get().strip() or "."), sc.sec)
         mark = " · 이미 있음" if exists else ""
         scene_var.set(f"{sc.label} → {sc.png_name}  |  {len(sc.prompt)}자{mark}")
+        single_sec_var.set(str(sc.sec))
+        _set_single_prompt(sc.prompt)
+        update_single_ref_hint()
+        _show_scene_png_preview(sc)
         persist()
 
-    scene_list.bind("<<ListboxSelect>>", on_scene_select)
+    if script_preview and scene_tree is not None:
+
+        def _on_tree_click(event: tk.Event) -> None:
+            if scene_tree.identify_region(event.x, event.y) != "cell":
+                return
+            iid = scene_tree.identify_row(event.y)
+            if not iid:
+                return
+            scene_tree.selection_set(iid)
+            scene_tree.focus(iid)
+            on_scene_select()
+
+        scene_tree.bind("<ButtonRelease-1>", _on_tree_click)
+        scene_tree.bind("<<TreeviewSelect>>", on_scene_select)
+        scene_tree.bind("<KeyRelease-Up>", on_scene_select)
+        scene_tree.bind("<KeyRelease-Down>", on_scene_select)
+        scene_tree.bind("<Motion>", _on_tree_motion)
+        scene_tree.bind("<Leave>", lambda _e: _hide_tree_cue_tooltip())
+
+        def _on_tree_dbl(_e: tk.Event) -> None:
+            sc = selected_scene()
+            if sc is None:
+                return
+            p = scene_png_path(Path(png_var.get().strip() or "."), sc.sec)
+            if p.is_file():
+                _open_png_viewer(p)
+
+        scene_tree.bind("<Double-1>", _on_tree_dbl)
+    elif scene_list is not None:
+        scene_list.bind("<<ListboxSelect>>", on_scene_select)
 
     ttk.Label(frm, textvariable=status_var).grid(row=4, column=0, sticky="ew", pady=(8, 0))
-    tip = (
-        "「실행」= 재오픈 → 생성·다운로드 반복"
-        " · 「인스턴스추가」= 다른 장(루트) 병렬 다운로드 · 슬롯(포트) 자동 분리"
-        " · 한도 시: 브라우저 종료 → 정상화 시각 확인(배너·필요 시 재오픈) → 대기 → 재개"
-        " · 완료후 PC종료: 체크 시 실행 종료 후 약 60초 뒤 · 취소 shutdown /a"
-        " · 실패 로그: image_fail.log"
-    )
+    if script_preview:
+        tip = (
+            "「실행」= 재오픈 → 생성·다운로드 반복"
+            " · 「새로고침」= 장(루트) png·SRT·프롬프트·씬·characters.json 재로드"
+            " · 행 마우스=대본 풍선 · SRT# 클릭=PNG · 크기 슬라이더 · 더블클릭 확대"
+            " · 개별 생성: 번호+내용(비우면 대본) · 직전 씬 참조 · 기존 PNG 덮어쓰기"
+            " · 실패 로그: image_fail.log"
+        )
+    else:
+        tip = (
+            "「실행」= 재오픈 → 생성·다운로드 반복"
+            " · 「새로고침」= 장(루트) png·SRT·프롬프트·씬·characters.json 재로드"
+            " · 「인스턴스추가」= 다른 장(루트) 병렬 다운로드 · 슬롯(포트) 자동 분리"
+            " · 한도 시: 브라우저 종료 → 정상화 시각 확인(배너·필요 시 재오픈) → 대기 → 재개"
+            " · 개별 생성: 번호+내용 → t-20 참조 첨부(체크)·기존 PNG 덮어쓰기"
+            " · 완료후 PC종료: 체크 시 실행 종료 후 약 60초 뒤 · 취소 shutdown /a"
+            " · 실패 로그: image_fail.log"
+        )
     ttk.Label(frm, text=tip, foreground="#555").grid(row=5, column=0, sticky="w", pady=(4, 0))
 
     def on_close() -> None:
+        if script_preview:
+            _hide_tree_cue_tooltip()
+        cancel_generation(reason="창 종료")
         persist()
         release_chrome_slot()
 
@@ -1659,6 +2832,11 @@ def main(*, container: tk.Misc | None = None) -> None:
             auto_assign_from_png(force=False)
         else:
             reload_scenes()
+        update_single_ref_hint()
+        if script_preview:
+            sc = selected_scene()
+            if sc is not None:
+                _show_scene_png_preview(sc, force_reload=True)
 
     root.after(150, _boot)
     run_mainloop(root, standalone)

@@ -18,6 +18,10 @@ _SRT_ARROW = re.compile(
 )
 _SEC_SPLIT_RE = re.compile(r"[,;\s]+")
 _SEC_RANGE_RE = re.compile(r"^(\d+)\s*[~～\-]\s*(\d+)?$")
+_CHAPTER_TITLE_RE = re.compile(r"^제?\s*\d+\s*장\b")
+# 20초 격자 외 항상 생성할 씬 (예: SRT_005 = 5초 · 제목 카드 직후 첫 본문)
+MANDATORY_EXTRA_SCENE_SECS: tuple[int, ...] = (5,)
+OPENING_BRIDGE_SCENE_SEC = 5
 
 
 def parse_sec_selection(
@@ -98,8 +102,151 @@ def srt_png_name(sec: int) -> str:
     return f"SRT_{max(0, int(sec)):03d}.png"
 
 
+REF_CHARACTERS_PNG = "ref_characters.png"
+
+
 def scene_png_path(png_dir: Path, sec: int) -> Path:
     return Path(png_dir) / srt_png_name(sec)
+
+
+def ref_characters_path(png_dir: Path | str) -> Path:
+    return Path(png_dir) / REF_CHARACTERS_PNG
+
+
+def prior_scene_candidate_secs(
+    srt_sec: int,
+    *,
+    scene_secs: list[int] | None = None,
+    interval_sec: int = 20,
+) -> list[int]:
+    """참조 후보 초 — 가까운 직전 씬부터 (내림차순).
+
+    ``scene_secs`` 가 있으면 목록에서 ``srt_sec`` 미만 중 최근 순.
+    없으면 ``SRT_{t-interval}`` (``SRT_020`` → ``SRT_005``) 한 개만.
+    """
+    n = int(srt_sec)
+    if scene_secs:
+        return [
+            s
+            for s in sorted({int(x) for x in scene_secs if int(x) >= 0})
+            if s < n
+        ][::-1]
+    gap = max(1, int(interval_sec))
+    if n == gap and OPENING_BRIDGE_SCENE_SEC < n:
+        return [int(OPENING_BRIDGE_SCENE_SEC)]
+    immediate = n - gap
+    return [immediate] if immediate >= 0 else []
+
+
+def previous_reference_slot_sec(
+    srt_sec: int,
+    *,
+    interval_sec: int = 20,
+    scene_secs: list[int] | None = None,
+) -> int | None:
+    """직전 참조 슬롯 초 (1순위 후보)."""
+    cands = prior_scene_candidate_secs(
+        srt_sec, scene_secs=scene_secs, interval_sec=interval_sec
+    )
+    return cands[0] if cands else None
+
+
+def _reference_png_at_slot(
+    pdir: Path,
+    slot: int,
+    *,
+    min_bytes: int,
+    last_completed_sec: int | None,
+    last_completed_path: Path | str | None,
+) -> Path | None:
+    expect_name = srt_png_name(slot)
+    if last_completed_sec is not None and int(last_completed_sec) == slot:
+        lp = Path(last_completed_path) if last_completed_path else None
+        if lp and lp.is_file() and lp.name == expect_name:
+            try:
+                if lp.stat().st_size >= int(min_bytes):
+                    return lp.resolve()
+            except OSError:
+                pass
+    if png_already_exists(pdir, slot, min_bytes=min_bytes):
+        p = scene_png_path(pdir, slot)
+        if p.name == expect_name:
+            return p
+    return None
+
+
+def find_previous_reference_png(
+    png_dir: Path | str,
+    srt_sec: int,
+    *,
+    interval_sec: int = 20,
+    prior_secs: list[int] | None = None,
+    min_bytes: int = 512,
+    last_completed_sec: int | None = None,
+    last_completed_path: Path | str | None = None,
+    scene_secs: list[int] | None = None,
+) -> Path | None:
+    """직전 참조 PNG — ``scene_secs`` 있으면 가까운 직전 씬부터 탐색."""
+    del prior_secs
+    pdir = Path(png_dir)
+    for slot in prior_scene_candidate_secs(
+        srt_sec, scene_secs=scene_secs, interval_sec=interval_sec
+    ):
+        path = _reference_png_at_slot(
+            pdir,
+            slot,
+            min_bytes=min_bytes,
+            last_completed_sec=last_completed_sec,
+            last_completed_path=last_completed_path,
+        )
+        if path is not None:
+            return path
+    return None
+
+
+def reference_png_path_ok(
+    attach_ref_path: Path,
+    srt_sec: int,
+    *,
+    interval_sec: int = 20,
+    scene_secs: list[int] | None = None,
+) -> bool:
+    """첨부 파일이 허용된 직전 참조 슬롯인지."""
+    m = re.match(r"SRT_(\d+)\.png$", attach_ref_path.name, re.IGNORECASE)
+    if not m:
+        return False
+    ref_sec = int(m.group(1))
+    cands = prior_scene_candidate_secs(
+        srt_sec, scene_secs=scene_secs, interval_sec=interval_sec
+    )
+    return ref_sec in cands
+
+
+def resolve_strict_reference_png(
+    png_dir: Path | str,
+    srt_sec: int,
+    *,
+    interval_sec: int = 20,
+    last_completed_sec: int | None = None,
+    last_completed_path: Path | str | None = None,
+    min_bytes: int = 512,
+    scene_secs: list[int] | None = None,
+) -> tuple[int | None, Path | None]:
+    """직전 참조 PNG — ``scene_secs`` 있으면 가까운 직전 씬부터."""
+    pdir = Path(png_dir)
+    for slot in prior_scene_candidate_secs(
+        srt_sec, scene_secs=scene_secs, interval_sec=interval_sec
+    ):
+        path = _reference_png_at_slot(
+            pdir,
+            slot,
+            min_bytes=min_bytes,
+            last_completed_sec=last_completed_sec,
+            last_completed_path=last_completed_path,
+        )
+        if path is not None:
+            return slot, path
+    return None, None
 
 
 def _srt_timestamp_to_sec(ts: str) -> int | None:
@@ -179,6 +326,9 @@ def build_interval_scenes(
             return sorted(scenes, key=lambda s: s.sec)
         return []
     secs: list[int] = list(range(0, end + 1, gap))
+    for extra in MANDATORY_EXTRA_SCENE_SECS:
+        if 0 <= int(extra) <= int(end):
+            secs.append(int(extra))
     if not secs or secs[-1] != end:
         secs.append(int(end))
     secs = sorted(set(secs))
@@ -189,6 +339,34 @@ def build_interval_scenes(
         else:
             out.append(SceneLine(sec=int(sec), prompt=f"image at {sec}s"))
     return out
+
+
+def find_latest_prior_png_on_disk(
+    png_dir: Path | str,
+    srt_sec: int,
+    *,
+    min_bytes: int = 512,
+) -> Path | None:
+    """``srt_sec`` 보다 작은 초 중 PNG 폴더에 있는 최신 ``SRT_XXX.png``."""
+    pdir = Path(png_dir)
+    if not pdir.is_dir():
+        return None
+    best_sec = -1
+    best: Path | None = None
+    for p in pdir.glob("SRT_*.png"):
+        m = re.match(r"^SRT_(\d+)\.png$", p.name, re.I)
+        if not m:
+            continue
+        sec = int(m.group(1))
+        if sec >= int(srt_sec) or sec <= best_sec:
+            continue
+        try:
+            if p.stat().st_size >= int(min_bytes):
+                best_sec = sec
+                best = p
+        except OSError:
+            continue
+    return best.resolve() if best else None
 
 
 def png_already_exists(png_dir: Path, sec: int, *, min_bytes: int = 512) -> bool:
@@ -220,6 +398,17 @@ def _srt_timestamp_to_float(ts: str) -> float | None:
     h, mi, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
     ms = int((m.group(4) or "0").ljust(3, "0")[:3])
     return float((h * 60 + mi) * 60 + s) + ms / 1000.0
+
+
+def detect_chapter_title_from_srt(srt_path: str | Path | None) -> str | None:
+    """SRT 첫 큐가 ``제N장 …`` 형식이면 장 제목 문자열."""
+    cues = parse_srt_cues(srt_path)
+    if not cues:
+        return None
+    first = (cues[0].text or "").strip()
+    if not first or not _CHAPTER_TITLE_RE.match(first):
+        return None
+    return first
 
 
 def parse_srt_cues(srt_path: str | Path | None) -> list[SrtCue]:
@@ -283,6 +472,27 @@ def _srt_texts_in_range(
     return [c.text for c in cues if c.end > t0 and c.start < t1]
 
 
+def srt_dialogue_until_next_scene(
+    srt_path: str | Path | None,
+    sec: int,
+    next_sec: int | None = None,
+) -> str:
+    """``sec`` 초부터 ``next_sec`` 직전까지 겹치는 SRT 대본 전체."""
+    cues = parse_srt_cues(srt_path)
+    if not cues:
+        return ""
+    t0 = float(max(0, int(sec)))
+    if next_sec is not None:
+        t1 = float(int(next_sec))
+    else:
+        end = last_srt_end_sec(srt_path)
+        if end is not None:
+            t1 = float(end) + 1.0
+        else:
+            t1 = max(c.end for c in cues) + 1.0
+    return _dedupe_srt_texts(_srt_texts_in_range(cues, t0, t1))
+
+
 def srt_dialogue_for_window(
     srt_path: str | Path | None,
     sec: int,
@@ -323,6 +533,40 @@ def srt_context_before(
     look = max(1, int(lookback_sec))
     t0 = max(0.0, t1 - float(look))
     return _dedupe_srt_texts(_srt_texts_in_range(cues, t0, t1))
+
+
+_PLACE_KW = re.compile(
+    r"(정자|정자각|정자閣|야외|실내|마당|뜰| courtyard|"
+    r"pavilion|garden|forest|mountain|cave|temple|inn|hall|room|"
+    r"차실|茶室|客棧|客店|산|林|洞|殿|堂|阁|亭|客栈|酒楼|"
+    r"river|lake|cliff|valley|village|city|gate|bridge|palace|"
+    r"roof|terrace|balcony|night|dawn| dusk)",
+    re.I,
+)
+
+
+def scene_location_fingerprint(
+    srt_path: str | Path | None,
+    sec: int,
+    *,
+    scene_prompt: str | None = None,
+    interval_sec: int = 20,
+) -> str:
+    """장소 추정 키 — 연속 동일 키면 참조 첨부 생략용."""
+    dialogue = srt_dialogue_for_window(
+        srt_path, sec, interval_sec=interval_sec
+    )
+    prompt = re.sub(r"\s+", " ", (scene_prompt or "").strip())
+    blob = f"{prompt}\n{dialogue}"
+    hits = sorted({m.group(0).lower() for m in _PLACE_KW.finditer(blob)})
+    if hits:
+        return "|".join(hits[:10])
+    if len(prompt) >= 16:
+        return prompt[:96].lower()
+    norm_d = re.sub(r"\s+", " ", dialogue[:240]).strip().lower()
+    if len(norm_d) >= 16:
+        return norm_d[:96]
+    return ""
 
 
 def is_real_scene_prompt(prompt: str | None) -> bool:

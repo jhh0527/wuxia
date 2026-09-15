@@ -26,6 +26,10 @@ _ZOOM_DELTA = 0.08
 _ZOOM_MAX = 1.0 + _ZOOM_DELTA
 
 
+# SRT_000(제목 카드)은 줌 없이 항상 고정
+FIXED_ONLY_ASSET_KEYS: frozenset[int] = frozenset({0})
+
+
 def normalize_png_effect(value: str | None) -> str:
     v = (value or PNG_EFFECT_FIXED).strip().lower()
     if v in PNG_EFFECT_LABELS:
@@ -33,6 +37,20 @@ def normalize_png_effect(value: str | None) -> str:
     if v in PNG_EFFECT_BY_LABEL:
         return PNG_EFFECT_BY_LABEL[v]
     return PNG_EFFECT_FIXED
+
+
+def asset_effect_locked(asset_number: int | None) -> bool:
+    """효과를 고정으로만 쓰는 자산 번호인지 (``SRT_000`` 제목 카드)."""
+    if asset_number is None:
+        return False
+    return int(asset_number) in FIXED_ONLY_ASSET_KEYS
+
+
+def png_effect_for_asset(asset_number: int | None, effect: str | None) -> str:
+    """자산 번호에 허용된 효과. 고정 자산이면 항상 ``fixed``."""
+    if asset_effect_locked(asset_number):
+        return PNG_EFFECT_FIXED
+    return normalize_png_effect(effect)
 
 
 def png_effect_label(value: str | None) -> str:

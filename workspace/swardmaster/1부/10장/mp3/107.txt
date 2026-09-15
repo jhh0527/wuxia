@@ -1,0 +1,2 @@
+[namgung]
+[tense] "어떻게?"

@@ -372,6 +372,11 @@ def _cached_load(path_str: str, mtime_ns: int) -> CharacterRegistry | None:
     return load_registry_file(path_str)
 
 
+def clear_registry_cache() -> None:
+    """characters.json 재로드를 위해 LRU 캐시 비우기."""
+    _cached_load.cache_clear()
+
+
 def get_registry(
     *,
     prompt_path: Path | str | None = None,

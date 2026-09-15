@@ -1,2 +1,3 @@
 # Playwright (Genspark 자동화 — 선택, 없으면 Chrome+클립보드 폴백)
 playwright>=1.40
+Pillow>=10.0.0

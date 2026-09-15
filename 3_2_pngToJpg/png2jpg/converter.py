@@ -194,3 +194,88 @@ def convert_images(
                 on_progress(i, total, sk)
 
     return results, skipped
+
+
+def _output_path_for_source(src: Path, n: int | None, *, pad_digits: int) -> Path:
+    """소스와 같은 폴더에 저장할 JPG 경로."""
+    if n is not None:
+        return src.parent / srt_jpg_name(n, pad=pad_digits)
+    return src.parent / f"{src.stem}.jpg"
+
+
+def convert_selected_files(
+    sources: list[Path],
+    *,
+    include_jpg: bool = True,
+    max_width: int = DEFAULT_MAX_WIDTH,
+    max_height: int = DEFAULT_MAX_HEIGHT,
+    quality: int = DEFAULT_JPEG_QUALITY,
+    pad_digits: int = 3,
+    on_progress: Callable[[int, int, ConvertResult | ConvertSkip], None] | None = None,
+) -> tuple[list[ConvertResult], list[ConvertSkip]]:
+    """지정한 이미지를 각 파일이 있는 폴더에 JPG로 저장."""
+    allowed = set(PNG_EXTS)
+    if include_jpg:
+        allowed |= JPG_EXTS
+
+    normalized: list[Path] = []
+    skipped: list[ConvertSkip] = []
+    seen: set[Path] = set()
+    for raw in sources:
+        src = raw.expanduser().resolve()
+        if src in seen:
+            continue
+        seen.add(src)
+        if not src.is_file():
+            skipped.append(ConvertSkip(src, "파일이 없습니다"))
+            continue
+        if src.suffix in JPG_EXTS and not include_jpg:
+            skipped.append(ConvertSkip(src, "JPG 재저장 옵션이 꺼져 있습니다"))
+            continue
+        if src.suffix not in allowed:
+            skipped.append(ConvertSkip(src, f"지원하지 않는 확장자: {src.suffix}"))
+            continue
+        normalized.append(src)
+
+    planned = _plan_output_numbers(normalized)
+    by_number: dict[int, Path] = {}
+    work_items: list[tuple[Path, int | None, str]] = []
+
+    for src, n, note in planned:
+        if n is None:
+            work_items.append((src, None, note))
+            continue
+        if n in by_number:
+            skipped.append(
+                ConvertSkip(src, f"SRT_{n:03d} 중복 (이미 {by_number[n].name})")
+            )
+            continue
+        by_number[n] = src
+        work_items.append((src, n, note))
+
+    results: list[ConvertResult] = []
+    total = len(work_items)
+
+    for i, (src, n, note) in enumerate(work_items, start=1):
+        dst = _output_path_for_source(src, n, pad_digits=pad_digits)
+        try:
+            r = convert_one(
+                src,
+                dst,
+                max_width=max_width,
+                max_height=max_height,
+                quality=quality,
+            )
+            if n is not None:
+                r.srt_number = n
+            r.match_note = note if n is not None else "같은 폴더 · 원본 파일명"
+            results.append(r)
+            if on_progress:
+                on_progress(i, total, r)
+        except OSError as e:
+            sk = ConvertSkip(src, str(e))
+            skipped.append(sk)
+            if on_progress:
+                on_progress(i, total, sk)
+
+    return results, skipped

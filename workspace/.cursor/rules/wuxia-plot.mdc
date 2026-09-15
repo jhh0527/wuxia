@@ -1,0 +1,13 @@
+---
+description: 부·장 줄거리와 events/chapter_map/BRIEF 동기화
+globs: "**/*줄거리*.md,**/chapter_map.md,**/events.md,**/briefs/CHAPTER_*.md"
+alwaysApply: false
+---
+
+# 줄거리 동기화
+
+「부/장 줄거리 추가」또는 줄거리·맵·사건 파일 편집 시  
+`.cursor/skills/wuxia-add-plot/SKILL.md` (저장소 루트) 절차를 따른다.
+
+최소: 줄거리 ↔ chapter_map ↔ events ↔ briefs/CHAPTER_NN  
+신규 인물·사망은 승인 전 확정 ID 금지.

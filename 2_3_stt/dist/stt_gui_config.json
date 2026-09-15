@@ -1,8 +1,8 @@
 {
-  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/3부/35장",
-  "mp3_dir": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\35장\\mp3",
-  "output_dir": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\35장\\mp3",
-  "audio_path": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\35장\\mp3\\all.mp3",
+  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/4부/44장",
+  "mp3_dir": "C:\\cursor\\wuxia\\workspace\\swardmaster\\4부\\44장\\mp3",
+  "output_dir": "C:\\cursor\\wuxia\\workspace\\swardmaster\\4부\\44장\\mp3",
+  "audio_path": "C:\\cursor\\wuxia\\workspace\\swardmaster\\4부\\44장\\mp3\\all.mp3",
   "whisper_model": "base",
   "language": "ko"
 }

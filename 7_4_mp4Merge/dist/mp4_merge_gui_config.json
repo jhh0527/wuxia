@@ -1,17 +1,15 @@
 {
-  "mp4_folder": "C:\\cursor\\wuxia\\workspace\\swardmaster\\2부\\완결\\mp4",
+  "mp4_folder": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\3-1완결\\mp4",
   "mute_files": {
-    "01.mp4": "sound",
-    "13.mp4": "sound",
-    "14.mp4": "sound",
-    "15.mp4": "sound",
-    "16.mp4": "sound",
-    "17.mp4": "sound",
-    "18.mp4": "sound",
-    "19.mp4": "sound",
-    "20.mp4": "sound",
-    "21.mp4": "sound",
-    "22.mp4": "sound"
+    "23.mp4": "sound",
+    "24.mp4": "sound",
+    "25.mp4": "sound",
+    "26.mp4": "sound",
+    "27.mp4": "sound",
+    "28.mp4": "sound",
+    "29.mp4": "sound",
+    "30.mp4": "sound",
+    "31.mp4": "sound"
   },
-  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/2부/완결"
+  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/3부/3-1완결"
 }

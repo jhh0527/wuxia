@@ -709,6 +709,9 @@ _SPEAKER_ALIASES: dict[str, str] = {
     "mukheo": "mukheo",
     "meokheo": "mukheo",
     "mukhe": "mukheo",
+    "jinho": "jinho",
+    "jinhu": "jinho",
+    "chenhao": "jinho",
 }
 
 _TAG_START_RE = re.compile(r"^\s*\[[A-Za-z][A-Za-z0-9_\-]*\]")

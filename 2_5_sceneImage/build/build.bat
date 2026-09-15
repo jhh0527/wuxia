@@ -12,7 +12,7 @@ echo Python not found
 exit /b 1
 :found
 echo [2_5_sceneImage] PyInstaller build...
-"%PY%" -m pip install -q pyinstaller playwright
+"%PY%" -m pip install -q pyinstaller playwright Pillow
 taskkill /IM 2_5_sceneImage_gui.exe /F 2>nul
 taskkill /IM 2_4_sceneImage_gui.exe /F 2>nul
 taskkill /IM 2_3_sceneImage_gui.exe /F 2>nul

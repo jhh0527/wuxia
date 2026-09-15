@@ -11,19 +11,20 @@
       "display_name": "Jin Muhan",
       "detect": ["진무한", "무한", "진 무한", "Jin Muhan", "Jin Mu-han"],
       "stateful": true,
-      "default_age": 19,
+      "default_age": 20,
       "face": "sharp narrow phoenix eyes, high straight nose, thin lips, defined jawline, youthful East-Asian face with ancient weary eyes, cool fair skin with porcelain complexion, slender wiry physique, calm unreadable expression",
       "default_expression": "calm unreadable expression",
       "look_by_age": {
         "15": "Jin Muhan, approximately fifteen years old, East-Asian youth with the soul of a fallen sword god, {face}, {state}, slender wiry build, {expression}",
-        "19": "Jin Muhan, approximately nineteen years old, East-Asian young swordsman, {face}, {state}, slender wiry build, {expression}"
+        "19": "Jin Muhan, approximately nineteen years old, East-Asian young swordsman, {face}, {state}, slender wiry build, {expression}",
+        "20": "Jin Muhan, approximately twenty years old, East-Asian young swordsman, {face}, {state}, slender wiry build, {expression}"
       },
       "states": {
-        "base": "jet-black waist-length hair in warrior topknot with jade hairpin, white Huashan orthodox robes with pale teal accents and flowing layered sleeves, silver plum-blossom embroidery, dark blue sash, refined orthodox Huashan jian at waist, no visible wound",
-        "hair_loose": "jet-black waist-length hair partially loosened from topknot, jade hairpin askew, loose strands over face, same white Huashan pale-teal robes and sash, refined jian, no wound",
-        "battle_torn": "jet-black waist-length hair in warrior topknot with jade hairpin (slightly disheveled), white Huashan robes with pale teal torn at sleeves and hem, silver plum embroidery dust-stained, dark blue sash, refined jian drawn, light dust and frayed cloth, no blood, no bleeding, no deep wound",
-        "blood_robe": "jet-black waist-length hair in warrior topknot with jade hairpin, white Huashan pale-teal robes with fresh blood spatters on chest and sleeves, silver plum embroidery, dark blue sash, refined jian, optional light blood on cheek, no deep wound",
-        "wounded_shoulder": "jet-black waist-length hair in warrior topknot with jade hairpin, white Huashan pale-teal robes torn at left shoulder with bleeding cut and blood stain, dark blue sash, refined jian, visible left-shoulder wound"
+        "base": "jet-black long hair in high warrior topknot with jade hairpin, long loose strands flowing down back past shoulders to mid-back/waist (always this long — NOT short hair, NOT cropped, NOT above-shoulder length), white Huashan orthodox robes with pale teal accents and flowing layered sleeves, silver plum-blossom embroidery, dark blue sash, refined orthodox Huashan jian at waist, no visible wound",
+        "hair_loose": "jet-black long hair mostly loosened from topknot, jade hairpin askew, long strands over face and down back to mid-back/waist, same white Huashan pale-teal robes and sash, refined jian, no wound",
+        "battle_torn": "jet-black long hair in high warrior topknot with jade hairpin (slightly disheveled), long loose strands flowing to mid-back/waist, white Huashan robes with pale teal torn at sleeves and hem, silver plum embroidery dust-stained, dark blue sash, refined jian drawn, light dust and frayed cloth, no blood, no bleeding, no deep wound",
+        "blood_robe": "jet-black long hair in high warrior topknot with jade hairpin, long loose strands flowing to mid-back/waist, white Huashan pale-teal robes with fresh blood spatters on chest and sleeves, silver plum embroidery, dark blue sash, refined jian, optional light blood on cheek, no deep wound",
+        "wounded_shoulder": "jet-black long hair in high warrior topknot with jade hairpin, long loose strands flowing to mid-back/waist, white Huashan pale-teal robes torn at left shoulder with bleeding cut and blood stain, dark blue sash, refined jian, visible left-shoulder wound"
       },
       "state_rules": [
         {"pattern": "갈아입|옷을\\s*갈아|새\\s*(?:옷|도포)|깨끗한\\s*(?:옷|도포)|도포를\\s*갈아|상처가\\s*아물|피가\\s*씻|핏자국을\\s*씻|clean(?:ed)?\\s*robes|fresh\\s*(?:robes|clothes)|changed\\s*(?:robes|clothes)", "state": "base"},
@@ -48,8 +49,8 @@
           "skip_anchor": true
         }
       ],
-      "anchor": "Always preserve Jin Muhan facial identity: same face, sharp narrow phoenix eyes, high straight nose, thin lips, defined jawline, youthful East-Asian face with ancient weary eyes, cool fair skin with porcelain complexion, slender wiry swordsman physique, calm unreadable expression (unless emotion scene). NOT generic bishonen. Hair, robe damage, blood, and wounds must follow the State Layer only — do not invent random outfit changes. Do not change facial identity, eye shape, or physique across scenes.",
-      "contrast": "porcelain fair skin, sharp narrow phoenix eyes, slender wiry build, white-teal Huashan robes, warrior topknot with jade pin"
+      "anchor": "Always preserve Jin Muhan facial identity: same face, sharp narrow phoenix eyes, high straight nose, thin lips, defined jawline, youthful East-Asian face with ancient weary eyes, cool fair skin with porcelain complexion, slender wiry swordsman physique, calm unreadable expression (unless emotion scene). NOT generic bishonen. Hair: always high warrior topknot with jade pin plus long flowing black hair to mid-back/waist — keep the same long length every scene (do NOT shorten between scenes). Robe damage, blood, and wounds follow State Layer only. Do not change facial identity, eye shape, physique, or hair length arbitrarily.",
+      "contrast": "porcelain fair skin, sharp narrow phoenix eyes, slender wiry build, white-teal Huashan robes, long black hair in topknot flowing to mid-back"
     },
     {
       "id": "Baek",
@@ -110,6 +111,14 @@
       "detect": ["왕삼도", "삼도", "Wang Samdo"],
       "look": "Wang Samdo, a brutal bandit chief in his 40s, muscular thick-necked, sun-darkened scarred skin, shaved head with wolf scalp tattoo, thick beard, gold left earring, one milky blind eye and one bloodshot eye, black leather armor over red inner shirt, wolf-fur cloak, three curved sabers on body",
       "contrast": "shaved head with wolf tattoo, thick beard, one blind milky eye, black leather armor, savage scarred face"
+    },
+    {
+      "id": "Hwan",
+      "display_name": "Hwan (Hyunmu Jinin, 還)",
+      "detect": ["환", "현무진인", "현무 어르신", "Hyunmu Jinin", "Hyunmu"],
+      "look": "Hwan (Hyunmu Jinin), former Huashan sect leader in his late 50s, weathered solemn East-Asian elder face with deep wrinkles and sharp tired eyes, short silver-gray hair neatly swept back above the ears with short nape (NOT long ponytail, NOT hair past shoulders, NOT beard to chest), clean-shaven jaw, plain ash-gray or brown-gray simple elder hanfu robes without ornate embroidery, calm unreadable calculating expression",
+      "anchor": "Always preserve Hwan/Hyunmu as the same elder: short silver-gray hair swept back only — never draw long flowing white hair or a long ponytail. Weathered face, plain gray-brown robes. NOT White-Haired Elder (extremely long snow hair, black constellation robes). NOT Cheongheo Jinin (long silver beard to chest, indigo Taoist elder robes). NOT young Jin Muhan.",
+      "contrast": "short swept-back silver-gray hair, weathered elder face, plain ash-gray robes — NOT long white hair, NOT youth topknot"
     },
     {
       "id": "Elder",

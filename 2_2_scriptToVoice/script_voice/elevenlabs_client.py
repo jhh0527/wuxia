@@ -79,6 +79,24 @@ def strip_tts_tags(text: str) -> str:
     return _BRACKET_TAG_RE.sub("", text)
 
 
+# 대본 ―― / —— — ElevenLabs가 기호로 읽거나 억양이 튀는 경우가 많음
+_DASH_RUN_RE = re.compile(r"[—–―－\-]{2,}")
+
+
+def normalize_dash_punctuation(text: str, *, for_v3: bool) -> str:
+    """``――`` ``——`` 등 대시를 TTS 친화 구두점·pause 로 치환."""
+    s = (text or "").strip()
+    if not _DASH_RUN_RE.search(s):
+        return s
+    pause = "[short pause] " if for_v3 else '<break time="0.4s" /> '
+    # 줄머리 박자: ``――셋.`` → ``[short pause] 셋.``
+    if _DASH_RUN_RE.match(s):
+        s = _DASH_RUN_RE.sub(pause, s, count=1)
+    # 말끊김·잔여: ``하지만――`` → ``하지만...``
+    s = _DASH_RUN_RE.sub("...", s)
+    return s
+
+
 def prepare_tts_for_api(
     text: str, *, model_id: str = "", add_trailing_pause: bool = False
 ) -> str:
@@ -96,8 +114,10 @@ def prepare_tts_for_api(
         s,
         flags=re.IGNORECASE,
     )
+    v3 = is_eleven_v3(model_id)
+    s = normalize_dash_punctuation(s, for_v3=v3)
 
-    if is_eleven_v3(model_id):
+    if v3:
         # 조합 태그를 짧은 쉼으로 정리
         s = re.sub(
             r"\[short pause\]\s*\[breathes\]\s*\[continues\]",

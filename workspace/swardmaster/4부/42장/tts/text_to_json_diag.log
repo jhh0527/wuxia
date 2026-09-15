@@ -1,0 +1,29 @@
+===== 2026-09-14 20:38:01 실행 =====
+[20:38:01] 준비 txt=C:\cursor\wuxia\workspace\swardmaster\4부\42장\tts\42.txt md=C:\cursor\wuxia\1_5_textToJson\md\dialogue_json.txt
+[20:38:12] ChromeDebug reused=0 port=9222 restart=True
+[20:38:24] 모델 이미 Opus 4.6: Claude Opus 4.6
+[20:38:24] 합본텍스트 입력 chars=22117 path=C:\cursor\wuxia\workspace\swardmaster\4부\42장\tts\text_to_json_bundle.txt
+[20:38:31] 입력창채움 ok=True chars_in=22117 chars_ui=22117
+[20:38:32] 전송후보 n=4 composer={'x': 331.5, 'y': 618, 'w': 654, 'h': 216} top=[('DIV', 36, 36, 968, 862, 'input-icon ml-[8px]'), ('DIV', 36, 36, 968, 862, 'enter-icon items-end cursor-pointer active'), ('DIV', 36, 36, 968, 862, 'enter-icon-wrapper rounded-[35%] md:hover:opacit'), ('DIV', 36, 36, 924, 862, 'cursor-pointer flex items-center p-[8px] rounded')]
+[20:38:34] 전송시도#1 method=send how=geo:DIV:input-icon ml-[8px] ok=True composer_len=0 grew=False generating=False
+[20:38:34] 전송확인 — 입력창 비움
+[20:38:36] 변환제출 mode=inline_text composer_remain=False generating=False txt=42.txt md=dialogue_json.txt sample=jsonSample.json voices=voices.json
+[20:38:36] 스크래프시작 wait_ms=600000 min_inputs=30 accept_n=20 src_chars=9722
+[20:38:36] 스크래프 tick=1 chars=22207 inputs=3 gen=generating page_stable=0 json_ok=False finished=False best_inputs=0 speakers=14 loose=3
+[20:38:55] 스크래프 tick=10 chars=23578 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=3 speakers=27 loose=3
+[20:39:09] 키보드복사시도 chars=25177 inputs=3
+[20:39:17] 스크래프 tick=20 chars=24973 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=3 speakers=41 loose=3
+[20:39:29] 키보드복사시도 chars=26423 inputs=3
+[20:39:33] 클립보드시도 chars=3769 inputs=34
+[20:39:33] 클립보드 채택 inputs=34
+[20:39:41] 스크래프 tick=30 chars=26694 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=34 speakers=57 loose=3
+[20:40:04] 스크래프 tick=40 chars=28436 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=34 speakers=74 loose=3
+[20:40:28] 스크래프 tick=50 chars=30274 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=34 speakers=93 loose=3
+[20:40:54] 스크래프 tick=60 chars=31995 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=34 speakers=107 loose=3
+[20:41:27] 스크래프 tick=70 chars=34363 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=34 speakers=129 loose=3
+[20:41:58] 스크래프 tick=80 chars=36829 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=34 speakers=151 loose=3
+[20:42:26] 스크래프 tick=90 chars=38395 inputs=154 gen=idle page_stable=3 json_ok=True finished=True best_inputs=154 speakers=168 loose=154
+[20:42:26] 스크래프완료 chars=15250 inputs=154
+[20:42:26] 스크래프결과 chars=15250 head={"chapter": "제42장-세 번째 각성", "voices_file": "../../../voices.json", "chunk_id": "A1", "inputs": [{"speaker": "narrator", …
+[20:42:26] 플로우종료 mode=inline_text logged_in=True scraped_chars=15250
+[20:42:27] JSON 저장OK → C:\cursor\wuxia\workspace\swardmaster\4부\42장\tts\42.json inputs=154 voices=C:\cursor\wuxia\workspace\swardmaster\voices.json

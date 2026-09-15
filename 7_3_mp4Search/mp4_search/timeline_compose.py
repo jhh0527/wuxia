@@ -15,6 +15,59 @@ from mp4_search.naming import (
 )
 
 
+TITLE_CARD_ASSET_KEY = 0
+TITLE_CARD_DURATION_SEC = 3.0
+OPENING_BRIDGE_ASSET_KEY = 5
+
+
+def infer_scene_interval_from_png_map(png_map: dict[int, Path]) -> int:
+    """PNG 파일 번호 간격 — ``SRT_000``·``SRT_005``·썸네일 제외."""
+    keys = sorted(
+        int(k)
+        for k in png_map
+        if int(k) > TITLE_CARD_ASSET_KEY
+        and int(k) != OPENING_BRIDGE_ASSET_KEY
+        and not is_thumbnail_asset(int(k))
+    )
+    if len(keys) >= 2:
+        return max(1, keys[1] - keys[0])
+    if keys:
+        return max(20, int(keys[0]))
+    return 20
+
+
+def apply_title_card_asset_times(
+    png_map: dict[int, Path],
+    asset_start_times: dict[int, float] | None = None,
+    *,
+    title_duration: float = TITLE_CARD_DURATION_SEC,
+    interval_sec: int | None = None,
+) -> dict[int, float]:
+    """``SRT_000`` 제목 카드 0초 · ``SRT_005``(5초) 또는 ``SRT_020``(3초) 첫 본문."""
+    out = dict(asset_start_times or {})
+    if TITLE_CARD_ASSET_KEY not in png_map:
+        return out
+    out[TITLE_CARD_ASSET_KEY] = 0.0
+    if OPENING_BRIDGE_ASSET_KEY in png_map:
+        out[OPENING_BRIDGE_ASSET_KEY] = float(OPENING_BRIDGE_ASSET_KEY)
+        return out
+    gap = max(1, int(interval_sec or infer_scene_interval_from_png_map(png_map)))
+    scene_keys = [
+        int(k)
+        for k in sorted(png_map.keys())
+        if int(k) > TITLE_CARD_ASSET_KEY
+        and int(k) != OPENING_BRIDGE_ASSET_KEY
+        and not is_thumbnail_asset(int(k))
+    ]
+    if not scene_keys:
+        return out
+    first_scene = int(scene_keys[0])
+    if first_scene != gap:
+        return out
+    out[first_scene] = max(0.0, float(title_duration))
+    return out
+
+
 @dataclass(frozen=True)
 class TimelineComposeJob:
     """한 타임라인 구간 합성 작업."""
@@ -107,28 +160,39 @@ def folder_asset_display_owners(
     cues: list[tuple[int, str, int, int]],
     asset_start_times: dict[int, float] | None = None,
 ) -> dict[int, int]:
-    """폴더 ``SRT_NNN`` 자산 → 그리드에 표시할 SRT map_id (타임라인 전환 첫 줄).
+    """폴더 ``SRT_NNN`` 자산 → 그리드에 표시할 SRT map_id (자산 1개 = 줄 1개).
 
     파일 번호 N의 시작 시각은 ``asset_start_times[N]`` (없으면 N초)이며,
-    그 시각 이후 첫 자막 줄에 MP4/PNG 파일명을 표시한다.
-    이후 자막이 없으면(마지막 자막 시작보다 뒤) 마지막 자막 줄에 붙인다.
+    그 시각이 속한 자막 줄(시작이 그 시각 이하인 마지막 줄)에 MP4/PNG 파일명을 표시한다.
+    자막 중간에서 시작하는 추가 컷(``SRT_296`` 등)도 다음 줄의 격자 자산(``SRT_300``)에
+    밀리지 않고 자기 구간 줄에 붙는다. 한 줄에 자산이 겹치면 번호가 작은 쪽이 그 줄을
+    쓰고 나머지는 다음 빈 줄로 밀린다. 첫 자막보다 앞이면 첫 줄에 붙인다.
     ``SRT_9999`` 썸네일은 제외.
     """
     owners: dict[int, int] = {}
     sorted_cues = sorted(cues, key=lambda c: c[2])
     if not sorted_cues:
         return owners
-    last_sid = int(sorted_cues[-1][0])
-    for fk in sorted(asset_map.keys()):
-        if is_thumbnail_asset(fk):
-            continue
+    starts = [c[2] / 1000.0 for c in sorted_cues]
+    taken: set[int] = set()
+    for fk in sorted(k for k in asset_map if not is_thumbnail_asset(k)):
         mark = asset_timeline_mark(fk, asset_start_times)
-        for sid, _text, st_ms, _en_ms in sorted_cues:
-            if st_ms / 1000.0 >= mark - 0.001:
-                owners[fk] = sid
+        idx = 0
+        for i, st in enumerate(starts):
+            if st > mark + 0.001:
                 break
+            # 같은 시각의 줄이 여러 개면 그중 첫 줄
+            if i == 0 or st > starts[i - 1] + 0.001:
+                idx = i
+        slot = idx
+        while slot in taken:
+            slot += 1
+        if slot >= len(sorted_cues):
+            # 뒤에 빈 줄이 없으면 자기 구간 줄 (표시 못 한 자산은 목록 끝 행으로)
+            slot = idx
         else:
-            owners[fk] = last_sid
+            taken.add(slot)
+        owners[fk] = int(sorted_cues[slot][0])
     return owners
 
 
@@ -137,18 +201,11 @@ def folder_asset_for_cue_row(
     asset_sec: int,
     asset_map: dict[int, Path],
     owners: dict[int, int],
-    *,
-    owns_asset: bool,
 ) -> Path | None:
-    """한 SRT 줄에 표시할 폴더 자산 (정확 번호 우선, 없으면 전환 줄 매칭).
+    """한 SRT 줄에 표시할 폴더 자산 (``folder_asset_display_owners`` 배정 기준).
 
     같은 줄에 여러 자산이 매칭되면 줄의 파일 번호(``asset_sec``)에 가장 가까운 것을 고른다.
     """
-    if not owns_asset:
-        return None
-    exact = asset_map.get(asset_sec)
-    if exact is not None:
-        return exact
     candidates = [
         fk for fk, owner_sid in owners.items() if owner_sid == srt_id and fk in asset_map
     ]
@@ -527,6 +584,7 @@ def list_timeline_compose_jobs(
         extra_mp4=extra_mp4,
         extra_png=extra_png,
     )
+    asset_start_times = apply_title_card_asset_times(png_map, asset_start_times)
     if not mp4_map:
         if png_map:
             return _list_image_only_compose_jobs(
@@ -747,7 +805,21 @@ def format_timeline_compose_status(
         extra_mp4=extra_mp4,
         extra_png=extra_png,
     )
+    asset_start_times = apply_title_card_asset_times(png_map, asset_start_times)
     lines = [f"폴더: {folder}", "", "SRT_NNN = 파일명 · 시작 = SRT 타임스탬프(초)."]
+    scene_gap = infer_scene_interval_from_png_map(png_map)
+    if TITLE_CARD_ASSET_KEY in png_map and OPENING_BRIDGE_ASSET_KEY in png_map:
+        lines.append(
+            f"SRT_000 제목 카드 0~{TITLE_CARD_DURATION_SEC:g}초 · "
+            f"첫 본문 SRT_{OPENING_BRIDGE_ASSET_KEY:03d} "
+            f"는 {OPENING_BRIDGE_ASSET_KEY:g}초부터."
+        )
+    elif TITLE_CARD_ASSET_KEY in png_map and scene_gap in png_map:
+        lines.append(
+            f"SRT_000 제목 카드 0~{TITLE_CARD_DURATION_SEC:g}초 · "
+            f"첫 본문 이미지 SRT_{scene_gap:03d} "
+            f"는 {TITLE_CARD_DURATION_SEC:g}초부터."
+        )
     if mp4_map:
         lines.append("이미지는 해당 MP4 구간에서만 표시 (다음 MP4 시작 시 제거).")
     elif png_map:

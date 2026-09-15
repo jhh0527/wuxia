@@ -1,0 +1,15 @@
+---
+description: 장·BRIEF 작성 문체·체크리스트
+globs: "**/briefs/**/*.md,**/*부/**/*.md"
+alwaysApply: false
+---
+
+# 장·BRIEF 작성
+
+저장소 루트 Rule `wuxia-chapter-writing.mdc`와 동일.
+
+- 문어체 무협 · 낭독 호흡 · 상태창 남발 금지
+- timeline / characters / martial_arts / foreshadowing 확인
+- BRIEF 공란 있으면 본문 생성 금지
+- 본문은 `<<<CHAPTER_START>>>` … `<<<CHAPTER_END>>>`
+- 말투는 해당 소설 `CURSOR_RULES.md` · `characters.md`

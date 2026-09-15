@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 CONFIG_NAME = "scene_image_gui_config.json"
+CONFIG_NAME_SCRIPT = "scene_image_script_gui_config.json"
 
 _KEYS = (
     "root_dir",
@@ -24,10 +25,16 @@ _KEYS = (
     "shutdown_after_complete",
     "shutdown_after_hours",
     "manual_secs",
+    "prev_image_reference",
+    "single_sec",
+    "single_prompt",
+    "preview_image_scale",
 )
 
 # 슬롯별 설정 파일 분리 (동시 인스턴스가 루트/png 를 덮어쓰지 않게)
 _config_slot_index: int | None = None
+_config_app: str = "scene"
+_config_dist: Path | None = None
 
 
 def set_config_slot(index: int | None) -> None:
@@ -35,15 +42,30 @@ def set_config_slot(index: int | None) -> None:
     _config_slot_index = None if index is None else int(index)
 
 
+def set_config_app(app_id: str) -> None:
+    """``scene`` (기본) · ``script`` (2_7_sceneImageScript)."""
+    global _config_app
+    _config_app = (app_id or "scene").strip().lower() or "scene"
+
+
+def set_config_dist(dist_dir: Path | str | None) -> None:
+    global _config_dist
+    _config_dist = Path(dist_dir) if dist_dir else None
+
+
 def config_path() -> Path:
-    if getattr(sys, "frozen", False):
+    if _config_dist is not None:
+        base = _config_dist
+    elif getattr(sys, "frozen", False):
         base = Path(sys.executable).resolve().parent
     else:
         base = Path(__file__).resolve().parents[1] / "dist"
+    base_name = CONFIG_NAME_SCRIPT if _config_app == "script" else CONFIG_NAME
     if _config_slot_index is None or _config_slot_index == 0:
-        name = CONFIG_NAME
+        name = base_name
     else:
-        name = f"scene_image_gui_config_slot{_config_slot_index}.json"
+        stem = base_name.removesuffix(".json")
+        name = f"{stem}_slot{_config_slot_index}.json"
     return base / name
 
 

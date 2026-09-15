@@ -1,7 +1,7 @@
 {
-  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/3부/35장",
-  "txt_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\3부\\35장\\tts\\35.txt",
+  "root_dir": "C:/cursor/wuxia/workspace/swardmaster/4부/46장",
+  "txt_file": "C:\\cursor\\wuxia\\workspace\\swardmaster\\4부\\46장\\tts\\46.txt",
   "md_file": "C:\\cursor\\wuxia\\1_5_textToJson\\md\\dialogue_json.txt",
-  "command": "아래 「dialogue_json.txt」 지침에 따라, 아래 「jsonSample.json」 형식 예시를 참고하고, 아래 「voices.json」의 speaker 키만 사용하고, 허용 speaker: narrator, jin, baek, mother, cheongheo, examiner, elder, geomseong, noin, eom, yurim, wang, sochon, namgung, namgungho, namgungjun, seongyu, seoryeong, yakjae, ashjin, jeokwi, dangga, mokyeon, hyeonmu …, 그 외 단역은 mob. 청허→cheongheo(chung 금지). 아래 「35.txt」(대본 텍스트)를 2_2 scriptToVoice용 dialogue JSON으로 변환해 주세요. 원문 첫 줄 장 제목(예: 제13장. …)은 chapter 필드와 inputs[0] narrator 낭독에 모두 넣고, 한자·한자 병기 괄호는 제외하세요. 모든 대사·속마음에 [calm] 등 오디오 태그를 반드시 붙이세요 (원문에 없어도 부여). 감정만 쓰지 말고 강도·목소리·멈춤을 2~3개 조합하고, 강한 장면은 문장 분리·구두점(... ! ?)으로 연기하세요. 설명·마크다운 없이 JSON 본문만 출력해 주세요. 형식: chapter, voices_file, chunk_id, inputs[{speaker, text}].",
+  "command": "아래 「dialogue_json.txt」 지침에 따라, 아래 「jsonSample.json」 형식 예시를 참고하고, 아래 「voices.json」의 speaker 키만 사용하고, 허용 speaker: narrator, jin, baek, mother, cheongheo, examiner, elder, geomseong, noin, eom, yurim, wang, sochon, namgung, namgungho, namgungjun, seongyu, seoryeong, yakjae, ashjin, jeokwi, dangga, mokyeon, hyeonmu …, 그 외 단역은 mob. 청허→cheongheo(chung 금지). 아래 「46.txt」(대본 텍스트)를 2_2 scriptToVoice용 dialogue JSON으로 변환해 주세요. 원문 첫 줄 장 제목(예: 제13장. …)은 chapter 필드와 inputs[0] narrator 낭독에 모두 넣고, 한자·한자 병기 괄호는 제외하세요. 모든 대사·속마음에 [calm] 등 오디오 태그를 반드시 붙이세요 (원문에 없어도 부여). 감정만 쓰지 말고 강도·목소리·멈춤을 2~3개 조합하고, 강한 장면은 문장 분리·구두점(... ! ?)으로 연기하세요. 설명·마크다운 없이 JSON 본문만 출력해 주세요. 형식: chapter, voices_file, chunk_id, inputs[{speaker, text}].",
   "email": "dream7515@gmail.com"
 }
