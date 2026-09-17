@@ -1,0 +1,30 @@
+===== 2026-09-14 22:39:30 실행 =====
+[22:39:30] 준비 txt=C:\cursor\wuxia\workspace\swardmaster\4부\44장\tts\44.txt md=C:\cursor\wuxia\1_5_textToJson\md\dialogue_json.txt
+[22:39:41] ChromeDebug reused=0 port=9222 restart=True
+[22:39:49] 모델 이미 Opus 4.6: Claude Opus 4.6
+[22:39:49] 합본텍스트 입력 chars=20499 path=C:\cursor\wuxia\workspace\swardmaster\4부\44장\tts\text_to_json_bundle.txt
+[22:39:52] 입력창채움 ok=True chars_in=20499 chars_ui=20499
+[22:39:52] 전송후보 n=4 composer={'x': 331.5, 'y': 618, 'w': 654, 'h': 216} top=[('DIV', 36, 36, 968, 862, 'input-icon ml-[8px]'), ('DIV', 36, 36, 968, 862, 'enter-icon items-end cursor-pointer active'), ('DIV', 36, 36, 968, 862, 'enter-icon-wrapper rounded-[35%] md:hover:opacit'), ('DIV', 36, 36, 924, 862, 'cursor-pointer flex items-center p-[8px] rounded')]
+[22:39:54] 전송시도#1 method=send how=geo:DIV:input-icon ml-[8px] ok=True composer_len=0 grew=False generating=False
+[22:39:54] 전송확인 — 입력창 비움
+[22:39:54] 변환제출 mode=inline_text composer_remain=False generating=False txt=44.txt md=dialogue_json.txt sample=jsonSample.json voices=voices.json
+[22:39:54] 스크래프시작 wait_ms=600000 min_inputs=30 accept_n=20 src_chars=8104
+[22:39:54] 스크래프 tick=1 chars=20552 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=0 speakers=14 loose=3
+[22:40:13] 스크래프 tick=10 chars=21789 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=3 speakers=27 loose=3
+[22:40:26] 키보드복사시도 chars=23314 inputs=3
+[22:40:34] 스크래프 tick=20 chars=23137 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=3 speakers=39 loose=3
+[22:40:45] 키보드복사시도 chars=24621 inputs=3
+[22:40:48] 클립보드시도 chars=3490 inputs=33
+[22:40:48] 클립보드 채택 inputs=33
+[22:40:56] 스크래프 tick=30 chars=24579 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=33 speakers=53 loose=3
+[22:41:18] 스크래프 tick=40 chars=26136 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=33 speakers=70 loose=3
+[22:41:40] 스크래프 tick=50 chars=27580 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=33 speakers=81 loose=3
+[22:42:01] 스크래프 tick=60 chars=29306 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=33 speakers=99 loose=3
+[22:42:24] 스크래프 tick=70 chars=31248 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=33 speakers=121 loose=3
+[22:42:47] 스크래프 tick=80 chars=32967 inputs=3 gen=idle page_stable=0 json_ok=False finished=False best_inputs=33 speakers=138 loose=3
+[22:43:12] 스크래프 tick=90 chars=34576 inputs=141 gen=idle page_stable=2 json_ok=True finished=False best_inputs=141 speakers=155 loose=141
+[22:43:15] 스크래프 tick=91 chars=34576 inputs=141 gen=idle page_stable=3 json_ok=True finished=True best_inputs=141 speakers=155 loose=141
+[22:43:15] 스크래프완료 chars=13127 inputs=141
+[22:43:15] 스크래프결과 chars=13127 head={"chapter": "제44장-도관의 싸움", "voices_file": "../../../voices.json", "chunk_id": "A1", "inputs": [{"speaker": "narrator", "…
+[22:43:15] 플로우종료 mode=inline_text logged_in=True scraped_chars=13127
+[22:43:15] JSON 저장OK → C:\cursor\wuxia\workspace\swardmaster\4부\44장\tts\44.json inputs=141 voices=C:\cursor\wuxia\workspace\swardmaster\voices.json
